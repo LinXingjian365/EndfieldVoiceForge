@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .core import paths
-from .routers import characters, files, inference, jobs, library, status
+from .routers import characters, datasets, files, inference, jobs, library, status, tools, training
 
 app = FastAPI(title="EndfieldVoiceForge", version=paths.VERSION)
 app.add_middleware(
@@ -24,7 +24,7 @@ app.add_middleware(
 os.makedirs(paths.ASSETS_DIR, exist_ok=True)
 app.mount("/assets", StaticFiles(directory=paths.ASSETS_DIR), name="assets")
 
-for r in (status, characters, files, inference, library, jobs):
+for r in (status, characters, files, inference, library, jobs, datasets, tools, training):
     app.include_router(r.router)
 
 

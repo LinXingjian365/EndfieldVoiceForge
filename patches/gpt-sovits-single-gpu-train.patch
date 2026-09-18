@@ -36,7 +36,7 @@ index 1176f0b..96207f0 100644
          logger=logger,
          num_sanity_val_steps=0,
 diff --git a/GPT_SoVITS/s2_train.py b/GPT_SoVITS/s2_train.py
-index 333e6a0..e7474bc 100644
+index 333e6a0..86aa068 100644
 --- a/GPT_SoVITS/s2_train.py
 +++ b/GPT_SoVITS/s2_train.py
 @@ -77,12 +77,13 @@ def run(rank, n_gpus, hps):
@@ -59,7 +59,28 @@ index 333e6a0..e7474bc 100644
      torch.manual_seed(hps.train.seed)
      if torch.cuda.is_available():
          torch.cuda.set_device(rank)
-@@ -196,10 +197,10 @@ def run(rank, n_gpus, hps):
+@@ -116,15 +117,16 @@ def run(rank, n_gpus, hps):
+         shuffle=True,
+     )
+     collate_fn = TextAudioSpeakerCollate(version=hps.model.version)
++    num_workers = int(os.environ.get("GSV_NUM_WORKERS", "5"))
+     train_loader = DataLoader(
+         train_dataset,
+-        num_workers=5,
++        num_workers=num_workers,
+         shuffle=False,
+-        pin_memory=True,
++        pin_memory=os.environ.get("GSV_PIN_MEMORY", "1") == "1",
+         collate_fn=collate_fn,
+         batch_sampler=train_sampler,
+-        persistent_workers=True,
+-        prefetch_factor=3,
++        persistent_workers=num_workers > 0,
++        prefetch_factor=3 if num_workers > 0 else None,
+     )
+     # if rank == 0:
+     #     eval_dataset = TextAudioSpeakerLoader(hps.data.validation_files, hps.data, val=True)
+@@ -196,10 +198,10 @@ def run(rank, n_gpus, hps):
          betas=hps.train.betas,
          eps=hps.train.eps,
      )
@@ -72,7 +93,7 @@ index 333e6a0..e7474bc 100644
          net_g = net_g.to(device)
          net_d = net_d.to(device)
  
-@@ -238,7 +239,7 @@ def run(rank, n_gpus, hps):
+@@ -238,7 +240,7 @@ def run(rank, n_gpus, hps):
                      torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
                      strict=False,
                  )
@@ -81,7 +102,7 @@ index 333e6a0..e7474bc 100644
                  else net_g.load_state_dict(
                      torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
                      strict=False,
-@@ -256,7 +257,7 @@ def run(rank, n_gpus, hps):
+@@ -256,7 +258,7 @@ def run(rank, n_gpus, hps):
                  net_d.module.load_state_dict(
                      torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"], strict=False
                  )

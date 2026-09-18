@@ -59,6 +59,11 @@ async def load_models(body: LoadRequest):
         raise HTTPException(404, f"weight not found: {e}") from e
 
 
+@router.post("/models/unload")
+def unload_models():
+    return tts_engine.get().unload()
+
+
 @router.post("/tts")
 async def tts(body: TtsRequest):
     eng = tts_engine.get()

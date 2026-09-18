@@ -132,6 +132,24 @@ class Engine:
         w = character["weights"]
         self.load(w["gpt"], w["sovits"], w.get("version", "v2"), character["id"])
 
+    def unload(self) -> dict:
+        """释放推理模型与显存(训练前调用)。"""
+        with _lock:
+            if self.tts is not None:
+                del self.tts
+                self.tts = None
+                self.gpt = self.sovits = self.version = None
+            import gc
+
+            gc.collect()
+            try:
+                import torch
+
+                torch.cuda.empty_cache()
+            except Exception:  # noqa: BLE001
+                pass
+        return self.describe()
+
     # ---------- 合成 ----------
     def synthesize(self, params: dict) -> tuple[bytes, int, float, float]:
         """返回 (wav_bytes, sr, duration_sec, elapsed_sec)。"""

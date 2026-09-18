@@ -14,6 +14,7 @@ git apply --ignore-whitespace ../../patches/gpt-sovits-webui-endfield.patch
 
 - `s1_train.py`：`devices=1, strategy="auto"`
 - `s2_train.py`：只有 `n_gpus > 1` 才初始化进程组与 DDP，加载预训练权重时按 `hasattr(net, "module")` 判断
+- `s2_train.py`：DataLoader 的 worker 数/pin_memory 改由环境变量 `GSV_NUM_WORKERS`（默认 5）、`GSV_PIN_MEMORY`（默认 1）控制；16GB 主机上 5 worker + pinned memory 会在首个 step 触发 "CUDA unknown error"，Studio 后端固定传 2 / 0
 - `AR/data/bucket_sampler.py`：`dist.is_initialized()` 代替 `torch.cuda.is_available()` 判断是否分布式
 
 ## gpt-sovits-webui-endfield.patch
