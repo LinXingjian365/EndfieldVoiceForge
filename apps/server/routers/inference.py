@@ -1,5 +1,6 @@
 import os
 import shutil
+import soundfile as sf
 import time
 import uuid
 
@@ -79,6 +80,9 @@ async def tts(body: TtsRequest):
     ref = paths.resolve(body.ref_audio_path)
     if not os.path.isfile(ref):
         raise HTTPException(404, f"ref audio not found: {body.ref_audio_path}")
+    ref_dur = sf.info(ref).duration
+    if not 3 <= ref_dur <= 10:
+        raise HTTPException(400, f"参考音频 {ref_dur:.1f} 秒,GPT-SoVITS 要求 3–10 秒;请换一条(数据集挑选器里置灰的都不能用)或用「长音频切分」")
 
     params = body.model_dump(exclude={"character", "save"})
     try:
@@ -178,5 +182,5 @@ def ref_samples(cid: str, limit: int = 60):
                 wav = parts[0]
                 if not os.path.isfile(wav):
                     continue
-                out.append({"path": paths.rel_to_root(wav), "file": os.path.basename(wav), "text": "|".join(parts[3:])})
+                out.append({"path": paths.rel_to_root(wav), "file": os.path.basename(wav), "text": "|".join(parts[3:]), "duration": round(sf.info(wav).duration, 2)})
     return out[:limit]

@@ -65,6 +65,7 @@
 - tfevents 里 grad_norm 有 inf/nan，JSON 序列化会 500，读曲线时要过滤非有限值
 - RVC 推理走 `infer/cli.py`（独立 Py3.12 venv），要先 `train.process_ckpt.extract_small_model` 从 G_*.pth 导出半精度小模型到 `assets/weights/`，再 `train.train_index` 建 faiss 索引；index_rate=0 时可不建索引
 - Tailwind grid 里 flex 子项要 `min-w-0` 才会收缩，否则 `truncate` 失效、列撑出去把右侧面板压在按钮上（Playwright 点击被 slider 拦截就是这个信号）
+- GPT-SoVITS 参考音频硬性 3–10 秒(TTS.py 直接 raise),数据集 254 条里 98 条 <3 s、29 条 >10 s;server 现在提前 400,挑选器置灰
 - Playwright 截图路径必须在允许目录内；curl 发中文 JSON 用 `--data-binary @file`
 
 ## 七、下一步
@@ -76,6 +77,7 @@
 - [ ] 考虑 GPT-SoVITS v2ProPlus / v4 版本（目录已建但权重未下）
 - [x] 推理页 UI 重构：已被 Studio `/synth` 取代
 - [ ] 切片工具：按识别文本自动命名 / 结果里可改名再保存
+- [ ] RVC 续训到 e100 后重新导出小模型,对比 e20 的呻吟/喘息转换效果
 - [ ] IndexTTS 作为可选引擎接进 Studio（RTF 太高，优先级低）
 - [ ] 第二个角色接入，验证多角色框架（characters/*.json + 数据集目录）
 - [ ] 数据页管线节点直接触发 pipeline/01–03（目前 datasets 路由已有 step 接口，前端节点还没全接）

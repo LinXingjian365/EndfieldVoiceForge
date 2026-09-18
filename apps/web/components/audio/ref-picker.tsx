@@ -19,7 +19,7 @@ export interface RefState {
   label?: string;
 }
 
-interface Sample { path: string; file: string; text: string }
+interface Sample { path: string; file: string; text: string; duration?: number }
 interface Segment { file: string; path: string; duration: number; text: string }
 
 const LANGS = [
@@ -127,6 +127,7 @@ function SamplePicker({ onPick }: { onPick: (s: Sample) => void }) {
   const [q, setQ] = useState("");
   const samples = useQuery({ queryKey: ["ref-samples", characterId], queryFn: () => api<Sample[]>(`/ref/samples/${characterId}?limit=300`), enabled: open });
   const list = (samples.data ?? []).filter((s) => !q || s.text.includes(q) || s.file.includes(q));
+  const usable = (s: Sample) => s.duration === undefined || (s.duration >= 3 && s.duration <= 10);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
@@ -134,15 +135,18 @@ function SamplePicker({ onPick }: { onPick: (s: Sample) => void }) {
       </Dialog.Trigger>
       <DialogFrame title="从训练集选择参考" en="DATASET SAMPLES">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索台词…" className="h-9 w-full border border-line-2 bg-surface-2 px-3 text-sm" />
+        <p className="micro mt-1 normal-case tracking-normal">参考音频必须 3–10 秒,置灰的不能选;想用那句台词可以去「长音频切分」或拼接。</p>
         <ul className="mt-2 max-h-[60vh] overflow-auto">
           {list.map((s) => (
             <li key={s.path}>
               <button
                 type="button"
+                disabled={!usable(s)}
                 onClick={() => { onPick(s); setOpen(false); }}
-                className="flex w-full items-start gap-3 border-b border-line-1 px-2 py-2 text-left hover:bg-surface-hover"
+                className="flex w-full items-start gap-3 border-b border-line-1 px-2 py-2 text-left hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
               >
                 <span className="micro w-32 shrink-0 truncate pt-0.5">{s.file}</span>
+                <span className={cn("micro w-12 shrink-0 pt-0.5 tabular-nums", usable(s) ? "text-success" : "text-danger")}>{s.duration?.toFixed(1)}s</span>
                 <span className="text-sm text-ink">{s.text}</span>
               </button>
             </li>

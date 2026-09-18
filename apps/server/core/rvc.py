@@ -64,6 +64,31 @@ def export_small(exp: str, ckpt: str, name: str, info: str = "") -> str:
     return f"{name}.pth"
 
 
+def latest_epoch(exp: str) -> int | None:
+    """从 logs/<exp>/G_*.pth 读已训 epoch(RVC 的 checkpoint 里存 iteration=epoch)。"""
+    d = os.path.join(LOGS, exp)
+    if not os.path.isdir(d):
+        return None
+    steps = [int(m.group(1)) for fn in os.listdir(d) if (m := CKPT_RE.match(fn))]
+    if not steps:
+        return None
+    code = f"import torch;print(torch.load(r{os.path.join(d, f'G_{max(steps)}.pth')!r},map_location='cpu',weights_only=False)['iteration'])"
+    r = _run(["-c", code], timeout=120)
+    try:
+        return int(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def train_cmd(exp: str, total_epoch: int, save_every: int = 10, batch_size: int = 1, keep_all: bool = False):
+    """续训:train.train 会自动从 logs/<exp>/{G,D}_*.pth 最新一个继续;每次保存都顺带导出小模型到 assets/weights/<exp>.pth。"""
+    args = ["-m", "train.train", "-e", exp, "-sr", "40k", "-f0", "1", "-bs", str(batch_size), "-g", "0",
+            "-te", str(total_epoch), "-se", str(save_every),
+            "-pg", "assets/pretrained_v2/f0G40k.pth", "-pd", "assets/pretrained_v2/f0D40k.pth",
+            "-l", "0" if keep_all else "1", "-c", "0", "-sw", "1", "-v", "v2"]
+    return [paths.PY_RVC, *args], {"PYTHONPATH": paths.RVC_DIR}, paths.RVC_DIR
+
+
 def index_cmd(exp: str):
     return [paths.PY_RVC, "-m", "train.train_index", exp, "v2", "assets/indices", "4", "single"], {"PYTHONPATH": paths.RVC_DIR}, paths.RVC_DIR
 

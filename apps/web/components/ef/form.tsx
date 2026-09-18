@@ -6,13 +6,15 @@ import * as SwitchPrimitive from "@radix-ui/react-switch";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { HelpTip } from "./help-tip";
+import type { HelpKey } from "@/lib/help";
 
 /* ---------- Field:label + 控件 + 微标 ---------- */
-export function Field({ label, hint, value, children, className }: { label: string; hint?: string; value?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Field({ label, hint, help, value, children, className }: { label: string; hint?: string; help?: HelpKey; value?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <label className={cn("flex flex-col gap-1.5", className)}>
       <span className="flex items-baseline justify-between">
-        <span className="text-xs text-ink-2">{label}</span>
+        <span className="flex items-center gap-1 text-xs text-ink-2">{label}{help && <HelpTip k={help} />}</span>
         {value !== undefined && <span className="font-mono text-xs tabular-nums text-ink">{value}</span>}
       </span>
       {children}

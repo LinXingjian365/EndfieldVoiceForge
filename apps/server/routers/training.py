@@ -68,7 +68,7 @@ MIN_FREE_RAM_GB = 4.0
 
 
 def _guard_training(free_engine: bool):
-    if jobmgr.running_of_kind("train:s2") or jobmgr.running_of_kind("train:s1"):
+    if any(jobmgr.running_of_kind(k) for k in ("train:s2", "train:s1", "rvc:train")):
         raise HTTPException(409, "a training job is already running")
     if free_engine:
         tts_engine.get().unload()

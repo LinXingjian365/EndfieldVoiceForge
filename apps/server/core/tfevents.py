@@ -40,3 +40,15 @@ def curves(exp: str, version: str = "v2") -> dict:
                         continue
                     result["s1"].setdefault(k, []).extend(v)
     return result
+
+
+def rvc_curves(exp: str) -> dict:
+    """RVC 训练曲线:SummaryWriter(log_dir=logs/<exp>),step 为 global_step。"""
+    from . import rvc
+
+    d = os.path.join(rvc.LOGS, exp)
+    out: dict[str, list] = {}
+    for f in sorted(glob.glob(os.path.join(d, "events.out.tfevents*")), key=os.path.getmtime):
+        for k, v in _read(f, ("loss/g/total", "loss/d/total", "loss/g/mel", "loss/g/kl", "loss/g/fm", "learning_rate")).items():
+            out.setdefault(k, []).extend(v)
+    return out

@@ -8,16 +8,19 @@ import { useStudio } from "@/lib/store";
 import { Panel, Chip, CoordinateTag, GhostWord, ScanDivider } from "@/components/ef";
 import { Button } from "@/components/ef/button";
 import { Field, Input, Select, Slider, Switch } from "@/components/ef/form";
+import { HelpTip } from "@/components/ef/help-tip";
 import { JobLog } from "@/components/job-log";
 import { AreaChart } from "@/components/area-chart";
 import { cn, fmtBytes } from "@/lib/utils";
 
 interface TrainStatus { exp: string; version: string; format: Record<string, boolean>; running: Record<string, string>; weights: WeightEntry[]; expDir: string }
 interface Curves { s2: Record<string, [number, number][]>; s1: Record<string, [number, number][]> }
+interface RvcStatus { exp: string; epoch: number | null; running: Record<string, string> }
 
 const VERSIONS = ["v2", "v2Pro", "v2ProPlus", "v4", "v3", "v1"];
 const FORMAT_ORDER: Record<string, string[]> = { default: ["1a", "1b", "1c"], pro: ["1a", "1b", "1sv", "1c"] };
 const STAGE_LABEL: Record<string, string> = { "1a": "文本 · BERT", "1b": "HuBERT · 32k", "1sv": "说话人向量", "1c": "语义 token" };
+const STAGE_HELP = { "1a": "format_1a", "1b": "format_1b", "1sv": "format_1sv", "1c": "format_1c" } as const;
 
 export default function TrainPage() {
   const { characterId, character } = useStudio();
@@ -31,11 +34,17 @@ export default function TrainPage() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [s2, setS2] = useState({ batch_size: 1, epochs: 8, save_every: 1, text_low_lr_rate: 0.4, grad_ckpt: true, lora_rank: 0, resume: true });
   const [s1, setS1] = useState({ batch_size: 1, epochs: 15, save_every: 1, if_dpo: false });
+  const [rvcCfg, setRvcCfg] = useState({ total_epoch: 100, save_every: 10 });
+  const rvcStatus = useQuery({ queryKey: ["rvc-status", exp], queryFn: () => api<RvcStatus>(`/rvc/${exp}/status`), refetchInterval: 4000 });
+  const rvcCurves = useQuery({ queryKey: ["rvc-curves", exp], queryFn: () => api<Record<string, [number, number][]>>(`/rvc/${exp}/curves`), refetchInterval: 8000 });
+  const runRvc = useMutation({ mutationFn: () => api<Job>("/rvc/train", { method: "POST", json: { exp, ...rvcCfg } }), onSuccess: (j) => { setJobId(j.id); qc.invalidateQueries({ queryKey: ["rvc-status"] }); } });
+  const rvcRunning = rvcStatus.data?.running["rvc:train"];
+  const rvcEpoch = rvcStatus.data?.epoch ?? null;
 
   const stages = FORMAT_ORDER[version.startsWith("v2Pro") ? "pro" : "default"];
   const fmt = status.data?.format ?? {};
   const running = status.data?.running ?? {};
-  const anyRunning = Object.keys(running).length > 0;
+  const anyRunning = Object.keys(running).length > 0 || !!rvcStatus.data?.running["rvc:train"];
 
   const runFormat = useMutation({
     mutationFn: (stage: string) => api<Job>("/training/format", { method: "POST", json: { character: characterId, exp, version, stages: [stage] } }),
@@ -55,6 +64,8 @@ export default function TrainPage() {
   const s2D = useMemo(() => curves.data?.s2["loss/d/total"] ?? [], [curves.data]);
   const s1Curve = useMemo(() => curves.data?.s1["total_loss_step"] ?? curves.data?.s1["total_loss_epoch"] ?? [], [curves.data]);
   const s1Acc = useMemo(() => curves.data?.s1["top_3_acc_step"] ?? [], [curves.data]);
+  const rvcMel = useMemo(() => rvcCurves.data?.["loss/g/mel"] ?? [], [rvcCurves.data]);
+  const rvcTotal = useMemo(() => rvcCurves.data?.["loss/g/total"] ?? [], [rvcCurves.data]);
   const gpts = (status.data?.weights ?? []).filter((w) => w.kind === "gpt");
   const sovs = (status.data?.weights ?? []).filter((w) => w.kind === "sovits");
   const allDone = stages.every((s) => fmt[s]);
@@ -65,8 +76,8 @@ export default function TrainPage() {
       <Panel title="实验" en="EXPERIMENT" className="row-span-2">
         <div className="flex h-full flex-col gap-3 overflow-auto p-3">
           <div className="grid grid-cols-[1fr_auto] gap-2">
-            <Field label="实验名 exp"><Input value={exp} onChange={(e) => setExp(e.target.value)} /></Field>
-            <Field label="版本"><Select value={version} onChange={setVersion} options={VERSIONS.map((v) => ({ value: v, label: v }))} className="w-28" /></Field>
+            <Field label="实验名 exp" help="exp"><Input value={exp} onChange={(e) => setExp(e.target.value)} /></Field>
+            <Field label="版本" help="version"><Select value={version} onChange={setVersion} options={VERSIONS.map((v) => ({ value: v, label: v }))} className="w-28" /></Field>
           </div>
           <p className="micro normal-case tracking-normal">数据:{character?.dataset.list}</p>
 
@@ -77,7 +88,7 @@ export default function TrainPage() {
               return (
                 <li key={s} className={cn("flex items-center gap-2 border border-line-1 bg-surface-0 px-2 py-1.5", r && "border-action")}>
                   <span className={cn("flex h-5 w-5 items-center justify-center text-[10px] font-bold", fmt[s] ? "bg-ink text-canvas" : "bg-surface-2 text-ink-3")}>{fmt[s] ? <Check size={12} /> : s}</span>
-                  <span className="text-xs text-ink">{STAGE_LABEL[s]}</span>
+                  <span className="text-xs text-ink">{STAGE_LABEL[s]}</span><HelpTip k={STAGE_HELP[s as keyof typeof STAGE_HELP]} />
                   {r ? <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setJobId(r)}>日志</Button>
                     : <Button size="sm" variant={fmt[s] ? "ghost" : "action"} className="ml-auto" icon={<Play size={10} />} disabled={anyRunning} onClick={() => runFormat.mutate(s)}>{fmt[s] ? "重跑" : "运行"}</Button>}
                 </li>
@@ -86,38 +97,52 @@ export default function TrainPage() {
           </ol>
 
           <ScanDivider label="2 · SoVITS (s2)" />
-          <Field label="epochs" value={s2.epochs}><Slider value={s2.epochs} onChange={(v) => setS2({ ...s2, epochs: v })} min={1} max={50} step={1} /></Field>
+          <Field label="epochs" help="s2_epochs" value={s2.epochs}><Slider value={s2.epochs} onChange={(v) => setS2({ ...s2, epochs: v })} min={1} max={50} step={1} /></Field>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="batch" value={s2.batch_size}><Slider value={s2.batch_size} onChange={(v) => setS2({ ...s2, batch_size: v })} min={1} max={8} step={1} /></Field>
-            <Field label="save every" value={s2.save_every}><Slider value={s2.save_every} onChange={(v) => setS2({ ...s2, save_every: v })} min={1} max={10} step={1} /></Field>
+            <Field label="batch" help="train_batch" value={s2.batch_size}><Slider value={s2.batch_size} onChange={(v) => setS2({ ...s2, batch_size: v })} min={1} max={8} step={1} /></Field>
+            <Field label="save every" help="save_every" value={s2.save_every}><Slider value={s2.save_every} onChange={(v) => setS2({ ...s2, save_every: v })} min={1} max={10} step={1} /></Field>
           </div>
-          <Field label="text_low_lr_rate" value={s2.text_low_lr_rate.toFixed(2)}><Slider value={s2.text_low_lr_rate} onChange={(v) => setS2({ ...s2, text_low_lr_rate: v })} min={0.2} max={0.6} step={0.05} /></Field>
-          <div className="flex items-center justify-between text-xs text-ink-2"><span>梯度检查点(省显存)</span><Switch checked={s2.grad_ckpt} onChange={(v) => setS2({ ...s2, grad_ckpt: v })} /></div>
-          <div className="flex items-center justify-between text-xs text-ink-2"><span>从上次断点续训</span><Switch checked={s2.resume} onChange={(v) => setS2({ ...s2, resume: v })} /></div>
-          {(version === "v3" || version === "v4") && <Field label="LoRA rank" value={s2.lora_rank}><Slider value={s2.lora_rank} onChange={(v) => setS2({ ...s2, lora_rank: v })} min={0} max={128} step={16} /></Field>}
+          <Field label="text_low_lr_rate" help="text_low_lr_rate" value={s2.text_low_lr_rate.toFixed(2)}><Slider value={s2.text_low_lr_rate} onChange={(v) => setS2({ ...s2, text_low_lr_rate: v })} min={0.2} max={0.6} step={0.05} /></Field>
+          <div className="flex items-center justify-between text-xs text-ink-2"><span className="flex items-center gap-1">梯度检查点(省显存)<HelpTip k="grad_ckpt" /></span><Switch checked={s2.grad_ckpt} onChange={(v) => setS2({ ...s2, grad_ckpt: v })} /></div>
+          <div className="flex items-center justify-between text-xs text-ink-2"><span className="flex items-center gap-1">从上次断点续训<HelpTip k="resume" /></span><Switch checked={s2.resume} onChange={(v) => setS2({ ...s2, resume: v })} /></div>
+          {(version === "v3" || version === "v4") && <Field label="LoRA rank" help="lora_rank" value={s2.lora_rank}><Slider value={s2.lora_rank} onChange={(v) => setS2({ ...s2, lora_rank: v })} min={0} max={128} step={16} /></Field>}
           <Button variant="action" icon={<FlaskConical size={14} />} disabled={!allDone || anyRunning} loading={runS2.isPending} onClick={() => runS2.mutate()}>开始 SoVITS 训练</Button>
 
           <ScanDivider label="3 · GPT (s1)" />
-          <Field label="epochs" value={s1.epochs}><Slider value={s1.epochs} onChange={(v) => setS1({ ...s1, epochs: v })} min={1} max={50} step={1} /></Field>
+          <Field label="epochs" help="s1_epochs" value={s1.epochs}><Slider value={s1.epochs} onChange={(v) => setS1({ ...s1, epochs: v })} min={1} max={50} step={1} /></Field>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="batch" value={s1.batch_size}><Slider value={s1.batch_size} onChange={(v) => setS1({ ...s1, batch_size: v })} min={1} max={8} step={1} /></Field>
-            <Field label="save every" value={s1.save_every}><Slider value={s1.save_every} onChange={(v) => setS1({ ...s1, save_every: v })} min={1} max={10} step={1} /></Field>
+            <Field label="batch" help="train_batch" value={s1.batch_size}><Slider value={s1.batch_size} onChange={(v) => setS1({ ...s1, batch_size: v })} min={1} max={8} step={1} /></Field>
+            <Field label="save every" help="save_every" value={s1.save_every}><Slider value={s1.save_every} onChange={(v) => setS1({ ...s1, save_every: v })} min={1} max={10} step={1} /></Field>
           </div>
-          <div className="flex items-center justify-between text-xs text-ink-2"><span>DPO 训练(更吃显存)</span><Switch checked={s1.if_dpo} onChange={(v) => setS1({ ...s1, if_dpo: v })} /></div>
+          <div className="flex items-center justify-between text-xs text-ink-2"><span className="flex items-center gap-1">DPO 训练(更吃显存)<HelpTip k="if_dpo" /></span><Switch checked={s1.if_dpo} onChange={(v) => setS1({ ...s1, if_dpo: v })} /></div>
           <Button variant="action" icon={<FlaskConical size={14} />} disabled={!allDone || anyRunning} loading={runS1.isPending} onClick={() => runS1.mutate()}>开始 GPT 训练</Button>
-          {(runS1.isError || runS2.isError || runFormat.isError) && <span className="text-xs text-danger">{((runS1.error ?? runS2.error ?? runFormat.error) as Error).message}</span>}
+          <ScanDivider label="4 · RVC (音色转换)" />
+          <div className="flex items-center gap-2 text-xs text-ink-2">
+            <span className="flex items-center gap-1">已训<HelpTip k="rvc_what" /></span>
+            <Chip tone={rvcEpoch ? "special" : "default"}>{rvcEpoch ? `e${rvcEpoch}` : "无"}</Chip>
+            {rvcRunning && <Chip tone="action">RUNNING</Chip>}
+          </div>
+          <Field label="训练到第几轮 total_epoch" help="rvc_total_epoch" value={rvcCfg.total_epoch}><Slider value={rvcCfg.total_epoch} onChange={(v) => setRvcCfg({ ...rvcCfg, total_epoch: v })} min={10} max={300} step={10} /></Field>
+          <Field label="save every" help="rvc_save_every" value={rvcCfg.save_every}><Slider value={rvcCfg.save_every} onChange={(v) => setRvcCfg({ ...rvcCfg, save_every: v })} min={5} max={50} step={5} /></Field>
+          <p className="micro normal-case tracking-normal">每轮约 2 分钟;从 e{rvcEpoch ?? 0} 续训到 e{rvcCfg.total_epoch} ≈ {Math.max(0, rvcCfg.total_epoch - (rvcEpoch ?? 0)) * 2} 分钟</p>
+          <Button variant="action" icon={<FlaskConical size={14} />} disabled={anyRunning || rvcCfg.total_epoch <= (rvcEpoch ?? 0)} loading={runRvc.isPending} onClick={() => runRvc.mutate()}>{rvcRunning ? "训练中" : "续训 RVC"}</Button>
+          {rvcRunning && <Button variant="ghost" size="sm" onClick={() => setJobId(rvcRunning)}>查看日志</Button>}
+          {(runS1.isError || runS2.isError || runFormat.isError || runRvc.isError) && <span className="text-xs text-danger">{((runS1.error ?? runS2.error ?? runFormat.error ?? runRvc.error) as Error).message}</span>}
         </div>
       </Panel>
 
       {/* 右上:阶段带 + 曲线 */}
       <Panel title="曲线" en="LOSS CURVES" action={<span className="micro">{curves.isFetching ? "refreshing" : "auto 8s"}</span>}>
-        <div className="relative grid h-full grid-rows-2 gap-2 overflow-hidden p-3">
+        <div className="relative grid h-full grid-rows-3 gap-2 overflow-hidden p-3">
           {!anyRunning && s2Curve.length > 0 && <GhostWord size={96} className="right-4 top-2">TRAINED</GhostWord>}
           <StageRow title="SoVITS · s2" tag="loss/g/total" last={s2Curve.at(-1)} running={!!running["train:s2"]} onLog={() => setJobId(running["train:s2"])}>
             <AreaChart height={90} series={[{ name: "G", points: s2Curve, tone: "data" }, { name: "D", points: s2D, tone: "muted" }]} />
           </StageRow>
           <StageRow title="GPT · s1" tag="total_loss" last={s1Curve.at(-1)} extra={s1Acc.at(-1) ? `top3 acc ${(s1Acc.at(-1)![1] * 100).toFixed(1)}%` : undefined} running={!!running["train:s1"]} onLog={() => setJobId(running["train:s1"])}>
             <AreaChart height={90} series={[{ name: "loss", points: s1Curve, tone: "data" }]} />
+          </StageRow>
+          <StageRow title="RVC · vc" tag="loss/g/mel" last={rvcMel.at(-1)} extra={rvcEpoch ? `epoch ${rvcEpoch}` : undefined} running={!!rvcRunning} onLog={() => setJobId(rvcRunning ?? null)}>
+            <AreaChart height={90} series={[{ name: "mel", points: rvcMel, tone: "data" }, { name: "total", points: rvcTotal, tone: "muted" }]} />
           </StageRow>
         </div>
       </Panel>

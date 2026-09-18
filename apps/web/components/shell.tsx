@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { AudioWaveform, Database, FlaskConical, Home, Layers, Wrench, Sun, Moon } from "lucide-react";
+import { AudioWaveform, Database, FlaskConical, Home, Layers, Wrench, Sun, Moon, BookOpen } from "lucide-react";
 import { api, assetUrl, type Status } from "@/lib/api";
 import { useStudio } from "@/lib/store";
 import { cn, fmtBytes } from "@/lib/utils";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/train", label: "训练", en: "TRAIN", icon: FlaskConical },
   { href: "/models", label: "模型", en: "MODELS", icon: Layers },
   { href: "/tools", label: "工具", en: "TOOLS", icon: Wrench },
+  { href: "/guide", label: "指南", en: "GUIDE", icon: BookOpen },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

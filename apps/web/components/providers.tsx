@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { api, type Character } from "@/lib/api";
 import { useStudio } from "@/lib/store";
 
@@ -31,7 +32,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
   return (
     <QueryClientProvider client={client}>
-      <CharacterProvider>{children}</CharacterProvider>
+      <Tooltip.Provider delayDuration={150}>
+        <CharacterProvider>{children}</CharacterProvider>
+      </Tooltip.Provider>
     </QueryClientProvider>
   );
 }

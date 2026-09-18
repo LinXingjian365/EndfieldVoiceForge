@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from ..core import jobs as jobmgr, library, paths, rvc
+from ..core import jobs as jobmgr, library, paths, rvc, tfevents, tts_engine
+from .training import _guard_training
 
 router = APIRouter(prefix="/rvc", tags=["rvc"])
 
@@ -16,6 +17,34 @@ router = APIRouter(prefix="/rvc", tags=["rvc"])
 @router.get("/models")
 def models():
     return rvc.list_models()
+
+
+@router.get("/{exp}/status")
+def status(exp: str):
+    running = {j.kind: j.id for j in jobmgr.all_jobs() if j.status == "running" and j.kind.startswith("rvc:") and j.meta.get("exp") == exp}
+    return {"exp": exp, "epoch": rvc.latest_epoch(exp), "running": running}
+
+
+@router.get("/{exp}/curves")
+def curves(exp: str):
+    return tfevents.rvc_curves(exp)
+
+
+class TrainBody(BaseModel):
+    exp: str
+    total_epoch: int = 100
+    save_every: int = 10
+    batch_size: int = 1
+    keep_all: bool = False
+
+
+@router.post("/train")
+def train(b: TrainBody):
+    if jobmgr.running_of_kind("rvc:train"):
+        raise HTTPException(409, "rvc training already running")
+    _guard_training(True)
+    cmd, env, cwd = rvc.train_cmd(b.exp, b.total_epoch, b.save_every, b.batch_size, b.keep_all)
+    return jobmgr.launch("rvc:train", f"RVC 训练 {b.exp} → e{b.total_epoch}", cmd, cwd, env, meta={"exp": b.exp, "epochs": b.total_epoch}).public()
 
 
 class ExportBody(BaseModel):
@@ -68,7 +97,7 @@ async def convert(b: ConvertBody):
         raise HTTPException(404, "source audio not found")
     if not os.path.isfile(os.path.join(rvc.WEIGHTS, b.model)):
         raise HTTPException(404, f"rvc model not found: {b.model}")
-    if jobmgr.running_of_kind("train:s2") or jobmgr.running_of_kind("train:s1"):
+    if jobmgr.running_of_kind("train:s2") or jobmgr.running_of_kind("train:s1") or jobmgr.running_of_kind("rvc:train"):
         raise HTTPException(409, "training is running; RVC would OOM")
     base = os.path.splitext(os.path.basename(src))[0]
     dst = os.path.join(paths.GENERATED_DIR, f"{base}_rvc.wav")

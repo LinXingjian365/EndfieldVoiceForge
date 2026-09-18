@@ -8,6 +8,7 @@ import { useStudio } from "@/lib/store";
 import { Panel, Chip, CoordinateTag, FrequencyBars, ScanDivider, WarningBand } from "@/components/ef";
 import { Button } from "@/components/ef/button";
 import { Field, Slider, Switch, Select, Textarea } from "@/components/ef/form";
+import { HelpTip } from "@/components/ef/help-tip";
 import { RefPicker, type RefState } from "@/components/audio/ref-picker";
 import { Waveform } from "@/components/audio/waveform";
 import { cn } from "@/lib/utils";
@@ -115,8 +116,8 @@ export default function SynthPage() {
       <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
         <Panel title="要合成的文本" en="TARGET TEXT" className="min-w-0" action={
           <div className="flex items-center gap-2">
-            <Select value={params.text_lang} onChange={(v) => set("text_lang", v)} options={LANGS} className="h-7 w-24 text-xs" ariaLabel="文本语种" />
-            <Select value={params.text_split_method} onChange={(v) => set("text_split_method", v)} options={CUT} className="h-7 w-32 text-xs" ariaLabel="切分方式" />
+            <HelpTip k="text_lang" /><Select value={params.text_lang} onChange={(v) => set("text_lang", v)} options={LANGS} className="h-7 w-24 text-xs" ariaLabel="文本语种" />
+            <HelpTip k="text_split_method" /><Select value={params.text_split_method} onChange={(v) => set("text_split_method", v)} options={CUT} className="h-7 w-32 text-xs" ariaLabel="切分方式" />
           </div>
         }>
           <Textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={`让${character?.name ?? "角色"}说点什么…\n每句换行,合成时按句切分。`} className="h-full border-0 bg-transparent px-4 py-3 text-base" />
@@ -164,7 +165,7 @@ export default function SynthPage() {
       <Panel title="参数" en="PARAMS" className="row-span-1">
         <div className="flex h-full flex-col gap-4 overflow-auto p-3">
           <div className="flex flex-col gap-2">
-            <span className="micro">WEIGHTS</span>
+            <span className="micro flex items-center gap-1">WEIGHTS<HelpTip k="gpt_weight" /><HelpTip k="sovits_weight" /></span>
             <Select value={engine?.gpt ?? ""} onChange={(v) => load.mutate({ gpt: v, sovits: engine?.sovits ?? sovOpts[0]?.value })} options={gptOpts} ariaLabel="GPT 权重" className="text-xs" />
             <Select value={engine?.sovits ?? ""} onChange={(v) => load.mutate({ gpt: engine?.gpt ?? gptOpts[0]?.value, sovits: v })} options={sovOpts} ariaLabel="SoVITS 权重" className="text-xs" />
             {load.isPending && <span className="micro text-action-text">loading weights…</span>}
@@ -172,29 +173,29 @@ export default function SynthPage() {
           {rvcModel && (
             <>
               <ScanDivider label="RVC" />
-              <Field label={`索引率 index_rate · ${rvcModel.name}`} hint="输出列表里的魔杖按钮用此模型做音色精修" value={rvcRate.toFixed(2)}><Slider value={rvcRate} onChange={setRvcRate} min={0} max={1} step={0.05} ariaLabel="rvc index rate" /></Field>
+              <Field label={`索引率 index_rate · ${rvcModel.name}`} help="rvc_index_rate" hint="输出列表里的魔杖按钮用此模型做音色精修" value={rvcRate.toFixed(2)}><Slider value={rvcRate} onChange={setRvcRate} min={0} max={1} step={0.05} ariaLabel="rvc index rate" /></Field>
             </>
           )}
           <ScanDivider label="SAMPLING" />
-          <Field label="top_k" value={params.top_k}><Slider value={params.top_k} onChange={(v) => set("top_k", v)} min={1} max={100} step={1} ariaLabel="top_k" /></Field>
-          <Field label="top_p" value={params.top_p.toFixed(2)}><Slider value={params.top_p} onChange={(v) => set("top_p", v)} min={0} max={1} step={0.05} ariaLabel="top_p" /></Field>
-          <Field label="temperature" value={params.temperature.toFixed(2)}><Slider value={params.temperature} onChange={(v) => set("temperature", v)} min={0} max={1} step={0.05} ariaLabel="temperature" /></Field>
-          <Field label="语速 speed" value={params.speed_factor.toFixed(2)}><Slider value={params.speed_factor} onChange={(v) => set("speed_factor", v)} min={0.6} max={1.65} step={0.05} ariaLabel="speed" /></Field>
-          <Field label="重复惩罚" value={params.repetition_penalty.toFixed(2)}><Slider value={params.repetition_penalty} onChange={(v) => set("repetition_penalty", v)} min={0} max={2} step={0.05} ariaLabel="repetition penalty" /></Field>
-          <Field label="seed(-1 随机)"><input type="number" value={params.seed} onChange={(e) => set("seed", Number(e.target.value))} className="h-8 w-full border border-line-2 bg-surface-2 px-2 font-mono text-xs" /></Field>
+          <Field label="top_k" help="top_k" value={params.top_k}><Slider value={params.top_k} onChange={(v) => set("top_k", v)} min={1} max={100} step={1} ariaLabel="top_k" /></Field>
+          <Field label="top_p" help="top_p" value={params.top_p.toFixed(2)}><Slider value={params.top_p} onChange={(v) => set("top_p", v)} min={0} max={1} step={0.05} ariaLabel="top_p" /></Field>
+          <Field label="temperature" help="temperature" value={params.temperature.toFixed(2)}><Slider value={params.temperature} onChange={(v) => set("temperature", v)} min={0} max={1} step={0.05} ariaLabel="temperature" /></Field>
+          <Field label="语速 speed" help="speed_factor" value={params.speed_factor.toFixed(2)}><Slider value={params.speed_factor} onChange={(v) => set("speed_factor", v)} min={0.6} max={1.65} step={0.05} ariaLabel="speed" /></Field>
+          <Field label="重复惩罚" help="repetition_penalty" value={params.repetition_penalty.toFixed(2)}><Slider value={params.repetition_penalty} onChange={(v) => set("repetition_penalty", v)} min={0} max={2} step={0.05} ariaLabel="repetition penalty" /></Field>
+          <Field label="seed(-1 随机)" help="seed"><input type="number" value={params.seed} onChange={(e) => set("seed", Number(e.target.value))} className="h-8 w-full border border-line-2 bg-surface-2 px-2 font-mono text-xs" /></Field>
 
           <button type="button" onClick={() => setAdvanced((a) => !a)} className="flex items-center gap-2 text-left micro hover:text-ink">
             <ChevronDown size={12} className={cn("transition-transform", advanced && "rotate-180")} /> ADVANCED
           </button>
           {advanced && (
             <div className="flex flex-col gap-4 border-l-2 border-line-1 pl-3">
-              <Field label="句间停顿 fragment_interval" value={params.fragment_interval.toFixed(2)}><Slider value={params.fragment_interval} onChange={(v) => set("fragment_interval", v)} min={0.01} max={1} step={0.01} ariaLabel="fragment interval" /></Field>
-              <Field label="batch_size" value={params.batch_size}><Slider value={params.batch_size} onChange={(v) => set("batch_size", v)} min={1} max={20} step={1} ariaLabel="batch size" /></Field>
-              <Field label="batch_threshold" value={params.batch_threshold.toFixed(2)}><Slider value={params.batch_threshold} onChange={(v) => set("batch_threshold", v)} min={0} max={1} step={0.05} ariaLabel="batch threshold" /></Field>
-              <div className="flex items-center justify-between text-xs text-ink-2"><span>并行推理 parallel_infer</span><Switch checked={params.parallel_infer} onChange={(v) => set("parallel_infer", v)} ariaLabel="parallel infer" /></div>
-              <div className="flex items-center justify-between text-xs text-ink-2"><span>分桶 split_bucket</span><Switch checked={params.split_bucket} onChange={(v) => set("split_bucket", v)} ariaLabel="split bucket" /></div>
-              <Field label="sample_steps (v3/v4)" value={params.sample_steps}><Slider value={params.sample_steps} onChange={(v) => set("sample_steps", v)} min={4} max={64} step={4} ariaLabel="sample steps" /></Field>
-              <div className="flex items-center justify-between text-xs text-ink-2"><span>超采样 super_sampling (v3)</span><Switch checked={params.super_sampling} onChange={(v) => set("super_sampling", v)} ariaLabel="super sampling" /></div>
+              <Field label="句间停顿 fragment_interval" help="fragment_interval" value={params.fragment_interval.toFixed(2)}><Slider value={params.fragment_interval} onChange={(v) => set("fragment_interval", v)} min={0.01} max={1} step={0.01} ariaLabel="fragment interval" /></Field>
+              <Field label="batch_size" help="batch_size" value={params.batch_size}><Slider value={params.batch_size} onChange={(v) => set("batch_size", v)} min={1} max={20} step={1} ariaLabel="batch size" /></Field>
+              <Field label="batch_threshold" help="batch_threshold" value={params.batch_threshold.toFixed(2)}><Slider value={params.batch_threshold} onChange={(v) => set("batch_threshold", v)} min={0} max={1} step={0.05} ariaLabel="batch threshold" /></Field>
+              <div className="flex items-center justify-between text-xs text-ink-2"><span className="flex items-center gap-1">并行推理 parallel_infer<HelpTip k="parallel_infer" /></span><Switch checked={params.parallel_infer} onChange={(v) => set("parallel_infer", v)} ariaLabel="parallel infer" /></div>
+              <div className="flex items-center justify-between text-xs text-ink-2"><span className="flex items-center gap-1">分桶 split_bucket<HelpTip k="split_bucket" /></span><Switch checked={params.split_bucket} onChange={(v) => set("split_bucket", v)} ariaLabel="split bucket" /></div>
+              <Field label="sample_steps (v3/v4)" help="sample_steps" value={params.sample_steps}><Slider value={params.sample_steps} onChange={(v) => set("sample_steps", v)} min={4} max={64} step={4} ariaLabel="sample steps" /></Field>
+              <div className="flex items-center justify-between text-xs text-ink-2"><span className="flex items-center gap-1">超采样 super_sampling (v3)<HelpTip k="super_sampling" /></span><Switch checked={params.super_sampling} onChange={(v) => set("super_sampling", v)} ariaLabel="super sampling" /></div>
             </div>
           )}
         </div>

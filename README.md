@@ -13,9 +13,10 @@
 | 枢纽 `/` | 角色立绘、引擎 / 显存 / 权重状态、模块入口、最近生成 |
 | 合成 `/synth` | 参考音频（上传 / 数据集挑选 / 长音频切分 + ASR）、文本、全部 GPT-SoVITS 推理参数、生成历史（波形试听 / 收藏 / 下载 / 以此为参考 / RVC 精修） |
 | 数据 `/data` | 解包定位 → 筛选 → ASR → 校对 管线节点，样本矩阵，打标编辑器（↑↓ 切换、Ctrl+S 保存） |
-| 训练 `/train` | 数据格式化 1a/1b/1c、SoVITS(s2) / GPT(s1) 训练参数与断点续训、实时 loss 曲线、作业日志、checkpoint 列表一键加载 |
+| 训练 `/train` | 数据格式化 1a/1b/1c、SoVITS(s2) / GPT(s1) / RVC 训练参数与断点续训、实时 loss 曲线、作业日志、checkpoint 列表一键加载 |
 | 模型 `/models` | 权重矩阵（exp × epoch）、加载 / 删除、A/B 试听、RVC 小模型导出 / 建索引 |
-| 工具 `/tools` | UVR5 人声分离、切片、降噪、批量 ASR |
+| 工具 `/tools` | RVC 音色转换（任意人声 → 提弗洛斯，呻吟/喘息等非语言人声走这里）、UVR5 人声分离、切片、降噪、批量 ASR |
+| 指南 `/guide` | 全部参数的新手说明（每个参数旁的 ? 图标悬浮也能看到）、常见问题 |
 
 ![synth](docs/screenshots/synth.png)
 ![train](docs/screenshots/train.png)
@@ -41,7 +42,7 @@ scripts/dev.ps1                       # 起 server(9890) + web(3000)
 | **GPT-SoVITS v2 微调** | 已训 22 epoch，可推理 | 目前最可用；Studio 训练页可续训 |
 | GPT-SoVITS 原版推理页 | 备用 | Studio 上线后仅作对照，见 `patches/` |
 | IndexTTS-2.5 零样本 | 跑通 | RTX 3060 6GB 上 RTF≈87（3s 音频要 270s），只能试听 |
-| RVC v2 音色转换 | 已训至 step 5320，已导出小模型 + 索引 | 作为合成后处理，一句约 14 s |
+| RVC v2 音色转换 | e20 / 200（DeepSeek 中断处），已导出小模型 + 索引，训练页可续训 | 合成后处理 + 非语言人声转换，一句约 15 s |
 
 训练集：254 条提弗洛斯中文台词，共 23.6 分钟，全部带官方台词文本（来自 ASR + `AudioDialog` 校对）。
 
