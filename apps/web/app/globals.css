@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+/* ============================================================
+   EndfieldVoiceForge — 设计 token
+   颜色按角色命名,组件不直接依赖 --yellow。
+   默认烟灰操作面(暗);html[data-surface="paper"] 切纸色。
+   ============================================================ */
+:root {
+  /* 中性:纸 / 混凝土 / 烟灰 / 墨 */
+  --surface-canvas: #101110;
+  --surface-0: #151614;
+  --surface-1: #181a18;
+  --surface-2: #1e201d;
+  --surface-3: #262825;
+  --surface-hover: #2a2c29;
+  --line-1: #343633;
+  --line-2: #4a4d49;
+  --text-primary: #f5f5f0;
+  --text-secondary: #898d89;
+  --text-muted: #5c5f5b;
+  --text-on-action: #101110;
+
+  /* 系统角色色 */
+  --action: #fff500;        /* 导航、选中、系统行动、进度填充 */
+  --action-deep: #e8e000;
+  --action-text: #fff500;   /* 作文字时的可读档 */
+  --notify: #ff7d1a;        /* 通知、倒计时、角括号选中 */
+  --gain: #d8f21d;          /* 增益 chip、新数值 */
+  --data: #3d9be0;          /* 量值图表、流程 */
+  --region: #14d0d0;        /* 地区/机构主题 */
+  --danger: #ff6b61;
+  --success: #4fbf5c;
+  --special: #a98be0;       /* 特殊 / 高稀有 */
+
+  /* 当前角色主题色,由 CharacterProvider 注入 */
+  --operator-accent: #a98be0;
+  --operator-accent-deep: #7d5fc4;
+
+  --radius-control: 0px;
+  --radius-capsule: 999px;
+  --ease-sharp: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-normal: 300ms;
+  --header-h: 56px;
+  --rail-w: 72px;
+  --status-h: 36px;
+}
+
+html[data-surface="paper"] {
+  --surface-canvas: #e8e8e2;
+  --surface-0: #eeeee8;
+  --surface-1: #f2f2ec;
+  --surface-2: #dcddd6;
+  --surface-3: #d0d1ca;
+  --surface-hover: #e2e2dc;
+  --line-1: #d8d9d5;
+  --line-2: #b6b8b3;
+  --text-primary: #101110;
+  --text-secondary: #4a4c48;
+  --text-muted: #8a8c88;
+  --action: #fff500;
+  --action-deep: #d9c700;
+  --action-text: #6b5d00;
+  --danger: #ff3b30;
+  --success: #2f9e44;
+  --data: #2a84b4;
+}
+
+@theme inline {
+  --color-canvas: var(--surface-canvas);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-hover: var(--surface-hover);
+  --color-line-1: var(--line-1);
+  --color-line-2: var(--line-2);
+  --color-ink: var(--text-primary);
+  --color-ink-2: var(--text-secondary);
+  --color-ink-3: var(--text-muted);
+  --color-on-action: var(--text-on-action);
+  --color-action: var(--action);
+  --color-action-deep: var(--action-deep);
+  --color-action-text: var(--action-text);
+  --color-notify: var(--notify);
+  --color-gain: var(--gain);
+  --color-data: var(--data);
+  --color-region: var(--region);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-special: var(--special);
+  --color-operator: var(--operator-accent);
+  --color-operator-deep: var(--operator-accent-deep);
+  --font-sans: var(--font-noto-sc), "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --font-display: var(--font-noto-sc), "HarmonyOS Sans SC", sans-serif;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+* { border-radius: 0; }
+.rounded-capsule { border-radius: var(--radius-capsule) !important; }
+.rounded-full { border-radius: 9999px !important; }
+
+::selection { background: var(--action); color: var(--text-on-action); }
+:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+/* ---------- 技法 ---------- */
+
+/* 可参数化切角(默认右下) */
+.cut-corner {
+  --cut: 10px;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%);
+}
+.cut-corner-tl {
+  --cut: 10px;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% 100%, 0 100%, 0 var(--cut));
+}
+.cut-corner-both {
+  --cut: 10px;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
+
+/* 角括号选中态(橙),不占 outline */
+.corner-bracket { position: relative; }
+.corner-bracket::after {
+  --b: 2px; --len: 10px; --c: var(--notify);
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(var(--c), var(--c)) 0 0 / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 0 0 / var(--b) var(--len),
+    linear-gradient(var(--c), var(--c)) 100% 0 / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 100% 0 / var(--b) var(--len),
+    linear-gradient(var(--c), var(--c)) 0 100% / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 0 100% / var(--b) var(--len),
+    linear-gradient(var(--c), var(--c)) 100% 100% / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 100% 100% / var(--b) var(--len);
+  background-repeat: no-repeat;
+}
+
+/* 幽灵描边字 */
+.ghost-word {
+  position: absolute; z-index: 0; pointer-events: none; user-select: none;
+  font-weight: 800; letter-spacing: .02em; line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--ghost-ink, color-mix(in srgb, var(--text-primary) 14%, transparent));
+}
+
+/* 低对比细网格纹理层 */
+.tex-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--text-primary) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--text-primary) 5%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+/* 斜纹(未探索/禁用) */
+.tex-hatch {
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--text-primary) 8%, transparent) 0 2px, transparent 2px 8px);
+}
+
+/* 区段头:左侧短竖条 */
+.section-head {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.section-head::before {
+  content: ""; width: 3px; height: 14px; background: var(--action);
+}
+
+/* 技术微标 */
+.micro { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line-2); }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* 频谱条动画 */
+@keyframes ef-freq { 0%, 100% { transform: scaleY(.25); } 50% { transform: scaleY(1); } }
+.freq-bar { transform-origin: bottom; animation: ef-freq var(--freq-dur, .8s) ease-in-out infinite; }
+.freq-paused .freq-bar { animation-play-state: paused; transform: scaleY(.25); }
+
+/* 扫描线(用于活动面板,低对比) */
+.scanline::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb, var(--text-primary) 3%, transparent) 3px 4px);
+}

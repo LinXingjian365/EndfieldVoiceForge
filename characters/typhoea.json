@@ -1,0 +1,39 @@
+{
+  "id": "typhoea",
+  "code": "chr_0034_typhoea",
+  "name": "提弗洛斯",
+  "nameEn": "Typhoeus",
+  "accent": "#a98be0",
+  "accentDeep": "#7d5fc4",
+  "art": {
+    "full": "characters/typhoea/bg_sign_char_typhoea_role_2.png",
+    "half": "characters/typhoea/chr_0034_typhoea.png",
+    "poster": "characters/typhoea/poster_chr_0034_typhoea.png",
+    "avatar": "characters/typhoea/icon_round_chr_0034_typhoea.png",
+    "avatarSquare": "characters/typhoea/icon_chr_0034_typhoea.png",
+    "silhouette": "characters/typhoea/bg_charinfo_chr_0034_typhoea.png",
+    "scene": "characters/typhoea/bg_loading_dung_typhoea_01.png",
+    "card": "characters/typhoea/business_card_topic_chr_0034_typhoea.png",
+    "skillIcons": [
+      "characters/typhoea/icon_skill_typhoea_01.png",
+      "characters/typhoea/icon_ultimate_skill_typhoea_01.png",
+      "characters/typhoea/icon_talent_typhoea_01.png"
+    ]
+  },
+  "speakerChannel": "typhoea",
+  "dataset": {
+    "wavDir": "datasets/typhoea_train",
+    "list": "datasets/typhoea_train_asr/typhoea.list"
+  },
+  "weights": {
+    "exp": "typhoea",
+    "version": "v2",
+    "gpt": "GPT_weights_v2/typhoea-e20.ckpt",
+    "sovits": "SoVITS_weights_v2/typhoea_e20_s5000.pth"
+  },
+  "defaultRef": {
+    "audio": "datasets/typhoea_train/typhoea_18645.wav",
+    "text": "好吧，很高兴你能把我当做合格的伙伴。",
+    "lang": "zh"
+  }
+}

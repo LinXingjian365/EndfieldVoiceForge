@@ -27,3 +27,12 @@ __pycache__/
 
 # 一次性调试脚本
 _*.py
+
+# ===== apps =====
+assets/
+apps/web/node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts
+apps/web/*.tsbuildinfo
+apps/web/.env*.local
