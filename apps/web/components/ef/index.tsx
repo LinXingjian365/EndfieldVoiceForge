@@ -20,9 +20,9 @@ export function Panel({
     <section className={cn("relative flex min-h-0 flex-col border border-line-1 bg-surface-1", cut && "cut-corner", className)}>
       {(title || action) && (
         <header className="flex h-10 shrink-0 items-center gap-3 border-b border-line-1 px-3">
-          {title && <h2 className="section-head text-ink">{title}</h2>}
-          {en && <span className="micro">{en}</span>}
-          <div className="ml-auto flex items-center gap-2">{action}</div>
+          {title && <h2 className="section-head whitespace-nowrap text-ink">{title}</h2>}
+          {en && <span className="micro min-w-0 truncate">{en}</span>}
+          <div className="ml-auto flex shrink-0 items-center gap-2">{action}</div>
         </header>
       )}
       <div className="min-h-0 flex-1">{children}</div>

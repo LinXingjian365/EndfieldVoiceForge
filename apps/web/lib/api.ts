@@ -168,3 +168,9 @@ export interface Sample {
   text: string | null;
   inList: boolean;
 }
+
+export interface RvcModels {
+  models: { file: string; name: string; size: number; mtime: number }[];
+  indices: string[];
+  experiments: { exp: string; checkpoints: { file: string; step: number; size: number }[]; has_features: boolean; has_index: boolean }[];
+}

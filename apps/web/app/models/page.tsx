@@ -2,13 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload, Trash2, Sparkles, Cpu } from "lucide-react";
-import { api, apiBlob, fileUrl, type WeightEntry, type Status } from "@/lib/api";
+import { Upload, Trash2, Sparkles, Cpu, Wand2, ListTree } from "lucide-react";
+import { api, fileUrl, type WeightEntry, type Status, type RvcModels } from "@/lib/api";
 import { useStudio } from "@/lib/store";
 import { Panel, Chip, CoordinateTag, ScanDivider } from "@/components/ef";
 import { Button } from "@/components/ef/button";
 import { Input, Textarea } from "@/components/ef/form";
 import { Waveform } from "@/components/audio/waveform";
+import { JobLog } from "@/components/job-log";
 import { cn, fmtBytes } from "@/lib/utils";
 
 export default function ModelsPage() {
@@ -82,6 +83,8 @@ export default function ModelsPage() {
             </section>
           ))}
           {weights.length === 0 && <p className="text-sm text-ink-3">没有微调权重。去训练页跑 s1/s2。</p>}
+          <ScanDivider label="RVC · POST-PROCESS" className="my-4" />
+          <RvcSection />
         </div>
       </Panel>
 
@@ -160,5 +163,58 @@ function AbPicker({ weights, onRun, busy }: { weights: WeightEntry[]; onRun: (pa
       <Button variant="primary" icon={<Sparkles size={14} />} className="ml-auto h-9" disabled={!pa || !pb} loading={busy} onClick={() => pa && pb && onRun([pa, pb])}>对比</Button>
       <span className="sr-only"><Upload /></span>
     </div>
+  );
+}
+
+function RvcSection() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["rvc-models"], queryFn: () => api<RvcModels>("/rvc/models") });
+  const [jobId, setJobId] = useState<string | null>(null);
+  const exp = useMutation({
+    mutationFn: (b: { exp: string; ckpt: string; name: string }) => api<{ file: string }>("/rvc/export", { method: "POST", json: { ...b, info: `${b.exp} ${b.ckpt}` } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rvc-models"] }),
+  });
+  const idx = useMutation({
+    mutationFn: (exp: string) => api<{ id: string }>(`/rvc/index?exp=${encodeURIComponent(exp)}`, { method: "POST" }),
+    onSuccess: (j) => setJobId(j.id),
+  });
+  const d = q.data;
+  if (!d) return null;
+  return (
+    <section>
+      <div className="mb-2 flex items-center gap-3">
+        <span className="section-head text-ink">RVC 音色模型</span>
+        <Chip tone="special">{d.models.length} 模型</Chip>
+        <Chip>{d.indices.length} 索引</Chip>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1">
+        {d.models.map((m) => (
+          <div key={m.file} className="flex h-14 min-w-[110px] flex-col items-center justify-center border border-line-1 bg-surface-0 px-2 text-xs" title={m.file}>
+            <span className="font-mono font-bold text-ink">{m.name}</span>
+            <span className="micro">{fmtBytes(m.size)}</span>
+          </div>
+        ))}
+        {d.models.length === 0 && <span className="text-xs text-ink-3">还没有导出的 RVC 模型。从下面的训练 checkpoint 导出。</span>}
+      </div>
+      {d.experiments.map((e) => (
+        <div key={e.exp} className="mb-2 border border-line-1 bg-surface-0 p-2">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="font-mono text-xs text-ink">{e.exp}</span>
+            <Chip tone={e.has_index ? "success" : "default"}>{e.has_index ? "索引已建" : "无索引"}</Chip>
+            <Button variant="ghost" size="sm" icon={<ListTree size={12} />} className="ml-auto" disabled={!e.has_features} loading={idx.isPending} onClick={() => idx.mutate(e.exp)}>{e.has_index ? "重建索引" : "建索引"}</Button>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {e.checkpoints.map((c) => (
+              <Button key={c.file} variant="secondary" size="sm" icon={<Wand2 size={12} />} loading={exp.isPending && exp.variables?.ckpt === c.file} onClick={() => exp.mutate({ exp: e.exp, ckpt: c.file, name: e.exp })}>
+                导出 s{c.step} → {e.exp}.pth
+              </Button>
+            ))}
+            {e.checkpoints.length === 0 && <span className="micro">没有 G_*.pth checkpoint</span>}
+          </div>
+          {exp.isError && <span className="text-xs text-danger">{(exp.error as Error).message}</span>}
+        </div>
+      ))}
+      {jobId && <JobLog jobId={jobId} compact className="mt-2 max-h-40" onDone={() => qc.invalidateQueries({ queryKey: ["rvc-models"] })} />}
+    </section>
   );
 }

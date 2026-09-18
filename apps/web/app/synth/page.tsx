@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Star, Download, Trash2, RefreshCw, ChevronDown } from "lucide-react";
-import { api, apiBlob, fileUrl, DEFAULT_TTS, type LibraryItem, type TtsParams, type WeightEntry, type Status } from "@/lib/api";
+import { Sparkles, Star, Download, Trash2, RefreshCw, ChevronDown, Wand2 } from "lucide-react";
+import { api, apiBlob, fileUrl, DEFAULT_TTS, type LibraryItem, type TtsParams, type WeightEntry, type Status, type RvcModels } from "@/lib/api";
 import { useStudio } from "@/lib/store";
 import { Panel, Chip, CoordinateTag, FrequencyBars, ScanDivider, WarningBand } from "@/components/ef";
 import { Button } from "@/components/ef/button";
@@ -53,6 +53,14 @@ export default function SynthPage() {
   const status = useQuery({ queryKey: ["status"], queryFn: () => api<Status>("/status"), refetchInterval: 4000 });
   const models = useQuery({ queryKey: ["models"], queryFn: () => api<{ weights: WeightEntry[] }>("/models") });
   const library = useQuery({ queryKey: ["library", characterId], queryFn: () => api<LibraryItem[]>(`/library?character=${characterId}&limit=50`) });
+  const rvcModels = useQuery({ queryKey: ["rvc-models"], queryFn: () => api<RvcModels>("/rvc/models") });
+  const rvcModel = rvcModels.data?.models.find((m) => m.name === characterId) ?? rvcModels.data?.models[0];
+  const [rvcRate, setRvcRate] = useState(0.5);
+  const rvc = useMutation({
+    mutationFn: (id: number) => api("/rvc/convert", { method: "POST", json: { generation_id: id, model: rvcModel!.file, index_rate: rvcRate } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library"] }),
+    onError: (e) => setLastError((e as Error).message),
+  });
 
   const gen = useMutation({
     mutationFn: async () => {
@@ -104,8 +112,8 @@ export default function SynthPage() {
       </Panel>
 
       {/* 中:文本 + 输出 */}
-      <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
-        <Panel title="要合成的文本" en="TARGET TEXT" action={
+      <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
+        <Panel title="要合成的文本" en="TARGET TEXT" className="min-w-0" action={
           <div className="flex items-center gap-2">
             <Select value={params.text_lang} onChange={(v) => set("text_lang", v)} options={LANGS} className="h-7 w-24 text-xs" ariaLabel="文本语种" />
             <Select value={params.text_split_method} onChange={(v) => set("text_split_method", v)} options={CUT} className="h-7 w-32 text-xs" ariaLabel="切分方式" />
@@ -114,8 +122,8 @@ export default function SynthPage() {
           <Textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={`让${character?.name ?? "角色"}说点什么…\n每句换行,合成时按句切分。`} className="h-full border-0 bg-transparent px-4 py-3 text-base" />
         </Panel>
 
-        <Panel title="输出" en="GENERATED" action={<span className="micro">{library.data?.length ?? 0} items</span>}>
-          <div className="h-full overflow-auto">
+        <Panel title="输出" en="GENERATED" className="min-w-0" action={<span className="micro">{library.data?.length ?? 0} items</span>}>
+          <div className="h-full overflow-y-auto overflow-x-hidden">
             {lastError && <WarningBand className="m-2">{lastError}</WarningBand>}
             {library.data?.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-ink-3">
@@ -125,13 +133,14 @@ export default function SynthPage() {
             )}
             <ul>
               {library.data?.map((g) => (
-                <li key={g.id} className={cn("group border-b border-line-1 px-3 py-2", playingId === g.id && "bg-surface-2")}>
+                <li key={g.id} className={cn("group min-w-0 border-b border-line-1 px-3 py-2", playingId === g.id && "bg-surface-2")}>
                   <div className="mb-1 flex items-center gap-2">
                     <FrequencyBars bars={8} height={14} paused={playingId !== g.id} tone="operator" />
-                    <span className="truncate text-sm text-ink">{g.text}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{g.text}</span>
                     <span className="ml-auto flex shrink-0 items-center gap-1">
                       <Chip>{g.duration.toFixed(1)}s</Chip>
                       <Chip tone="data">{g.elapsed.toFixed(1)}s</Chip>
+                      {g.tags.includes("rvc") && <Chip tone="special">RVC</Chip>}
                       <Chip>seed {g.seed}</Chip>
                     </span>
                   </div>
@@ -140,6 +149,7 @@ export default function SynthPage() {
                     <button type="button" aria-label="收藏" onClick={() => patch.mutate({ id: g.id, favorite: !g.favorite })} className={cn("text-ink-3 hover:text-action", g.favorite && "text-action")}><Star size={14} fill={g.favorite ? "currentColor" : "none"} /></button>
                     <a href={fileUrl(g.wav)} download aria-label="下载" className="text-ink-3 hover:text-ink"><Download size={14} /></a>
                     <button type="button" aria-label="以此为参考" title="以此为参考" onClick={() => setRef({ path: g.wav, text: g.text, lang: params.text_lang, label: `gen #${g.id}` })} className="text-ink-3 hover:text-ink"><RefreshCw size={14} /></button>
+                    {rvcModel && !g.tags.includes("rvc") && <button type="button" aria-label="RVC 精修" title={`RVC 精修 (${rvcModel.name})`} disabled={rvc.isPending} onClick={() => rvc.mutate(g.id)} className={cn("text-ink-3 hover:text-special disabled:opacity-40", rvc.isPending && rvc.variables === g.id && "text-special animate-pulse")}><Wand2 size={14} /></button>}
                     <button type="button" aria-label="删除" onClick={() => del.mutate(g.id)} className="text-ink-3 hover:text-danger"><Trash2 size={14} /></button>
                   </div>
                   <div className="micro mt-1 truncate">{g.gpt?.split("/").pop()} · {g.sovits?.split("/").pop()} · {g.created_at}</div>
@@ -159,6 +169,12 @@ export default function SynthPage() {
             <Select value={engine?.sovits ?? ""} onChange={(v) => load.mutate({ gpt: engine?.gpt ?? gptOpts[0]?.value, sovits: v })} options={sovOpts} ariaLabel="SoVITS 权重" className="text-xs" />
             {load.isPending && <span className="micro text-action-text">loading weights…</span>}
           </div>
+          {rvcModel && (
+            <>
+              <ScanDivider label="RVC" />
+              <Field label={`索引率 index_rate · ${rvcModel.name}`} hint="输出列表里的魔杖按钮用此模型做音色精修" value={rvcRate.toFixed(2)}><Slider value={rvcRate} onChange={setRvcRate} min={0} max={1} step={0.05} ariaLabel="rvc index rate" /></Field>
+            </>
+          )}
           <ScanDivider label="SAMPLING" />
           <Field label="top_k" value={params.top_k}><Slider value={params.top_k} onChange={(v) => set("top_k", v)} min={1} max={100} step={1} ariaLabel="top_k" /></Field>
           <Field label="top_p" value={params.top_p.toFixed(2)}><Slider value={params.top_p} onChange={(v) => set("top_p", v)} min={0} max={1} step={0.05} ariaLabel="top_p" /></Field>
