@@ -56,12 +56,26 @@
 - 用户的 UI 方向：参考 `终末地Github.docx` 里的前端项目（ReEnd-Components、Talos-Pioneers/ui、endfield-blog-ui 等），把推理页重构成终末地工业编辑风。目前只套了 CSS，没动布局。
 - 内容边界：用户要拿情感丰富的擦边台词测韵律，DeepSeek 给了「羞涩→依赖→暧昧→欲拒还迎」四句非露骨版本，露骨内容拒绝了。
 
-## 六、下一步
+## 六、Studio（09-18 18:00 – 21:40）
+
+- 后端进程内 import GPT-SoVITS 的 `TTS` 类必须 chdir 到 gpt-sovits 目录（大量相对路径）；server 自身只用绝对路径就不受影响
+- 训练前必须 `del tts; gc.collect(); torch.cuda.empty_cache()` 释放引擎，否则 s2 首个 step "bad allocation"
+- 引擎卸载后仍 "CUDA unknown error"：根因不是显存而是主机内存。上游 s2 `DataLoader(num_workers=5, pin_memory=True, prefetch_factor=3)` 在 16 GB 主机 + server + 浏览器下把 RAM 挤爆。改成 env 控制（GSV_NUM_WORKERS=2, GSV_PIN_MEMORY=0）后从 Studio 起训稳定，e21/e22 各 3 分钟
+- s2 续训是隐式的：只要 `logs/<exp>/logs_s2_v2/G_*.pth` 存在就从该 epoch 继续，`epochs` 小于等于已训 epoch 时训练直接结束却报 success；Studio 加了"断点续训"开关（关掉即删旧 ckpt 重训）
+- tfevents 里 grad_norm 有 inf/nan，JSON 序列化会 500，读曲线时要过滤非有限值
+- RVC 推理走 `infer/cli.py`（独立 Py3.12 venv），要先 `train.process_ckpt.extract_small_model` 从 G_*.pth 导出半精度小模型到 `assets/weights/`，再 `train.train_index` 建 faiss 索引；index_rate=0 时可不建索引
+- Tailwind grid 里 flex 子项要 `min-w-0` 才会收缩，否则 `truncate` 失效、列撑出去把右侧面板压在按钮上（Playwright 点击被 slider 拦截就是这个信号）
+- Playwright 截图路径必须在允许目录内；curl 发中文 JSON 用 `--data-binary @file`
+
+## 七、下一步
 
 - [ ] 试听 `outputs/gsv_typhoea_ft.wav`，判断 e20 是否过拟合；GPT_weights_v2 / SoVITS_weights_v2 下每个 epoch 都有存档，可以对比 e8 / e12 / e16
 - [ ] gsv_infer.py 的参考音频换几条不同情绪的台词看稳定性
-- [ ] RVC G_5320.pth 做一次推理验证，看能否作为 GPT-SoVITS 输出的后处理
+- [x] RVC G_5320.pth 推理验证：已接成合成页的 "RVC 精修"
 - [ ] 把 `voType=5`（无线电）加进训练集会不会拉低音质（无线电有滤波效果）
 - [ ] 考虑 GPT-SoVITS v2ProPlus / v4 版本（目录已建但权重未下）
-- [ ] 推理页 UI 重构：目前只是 CSS 覆盖，要按终末地风格重排布局（切分工具提到主流程、参考音频区合并）
-- [ ] 切片工具：按识别文本自动命名 / 结果里可改名再保存（DeepSeek 提过但没做）
+- [x] 推理页 UI 重构：已被 Studio `/synth` 取代
+- [ ] 切片工具：按识别文本自动命名 / 结果里可改名再保存
+- [ ] IndexTTS 作为可选引擎接进 Studio（RTF 太高，优先级低）
+- [ ] 第二个角色接入，验证多角色框架（characters/*.json + 数据集目录）
+- [ ] 数据页管线节点直接触发 pipeline/01–03（目前 datasets 路由已有 step 接口，前端节点还没全接）

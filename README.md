@@ -1,19 +1,47 @@
 # EndfieldVoiceForge
 
-《明日方舟：终末地》角色语音克隆实验工程。当前目标角色：**提弗洛斯**（`chr_0034_typhoea`）。
+《明日方舟：终末地》角色语音克隆工作台。数据准备 → 训练 → 调参 → 合成 → RVC 精修全流程在一个终末地风格的 Web Studio 里完成；当前角色：**提弗洛斯**（`chr_0034_typhoea`），框架支持多角色。
 
-从官方解包语音里定位角色人声、构建带台词文本的训练集，然后用 GPT-SoVITS 微调 / IndexTTS 零样本 / RVC 音色转换三条路线做对比。
+> 仅用于个人学习。解包素材、训练集、权重、生成音频都不进仓库，仓库只含代码与说明。
 
-> 仅用于个人学习。解包素材与克隆模型不公开分发，仓库只含脚本与说明。
+![hub](docs/screenshots/hub.png)
+
+## Studio（apps/）
+
+| 页面 | 功能 |
+|---|---|
+| 枢纽 `/` | 角色立绘、引擎 / 显存 / 权重状态、模块入口、最近生成 |
+| 合成 `/synth` | 参考音频（上传 / 数据集挑选 / 长音频切分 + ASR）、文本、全部 GPT-SoVITS 推理参数、生成历史（波形试听 / 收藏 / 下载 / 以此为参考 / RVC 精修） |
+| 数据 `/data` | 解包定位 → 筛选 → ASR → 校对 管线节点，样本矩阵，打标编辑器（↑↓ 切换、Ctrl+S 保存） |
+| 训练 `/train` | 数据格式化 1a/1b/1c、SoVITS(s2) / GPT(s1) 训练参数与断点续训、实时 loss 曲线、作业日志、checkpoint 列表一键加载 |
+| 模型 `/models` | 权重矩阵（exp × epoch）、加载 / 删除、A/B 试听、RVC 小模型导出 / 建索引 |
+| 工具 `/tools` | UVR5 人声分离、切片、降噪、批量 ASR |
+
+![synth](docs/screenshots/synth.png)
+![train](docs/screenshots/train.png)
+
+- `apps/server`：FastAPI（端口 9890），进程内常驻 GPT-SoVITS `TTS` 引擎；训练 / 工具类任务走子进程 + SSE 日志流；生成历史存 sqlite
+- `apps/web`：Next.js 16 + React 19 + Tailwind v4；视觉遵循终末地设计语言（烟灰底 / 信号黄行动色 / 直角与切角 / 角括号选中 / 幽灵字），角色主题色由 `characters/*.json` 注入
+- 解包素材经 `scripts/sync_assets.py` 按 `assets.manifest.json` 拷入 `assets/`（gitignore），server 以 `/assets` 挂载
+
+### 启动
+
+```powershell
+python scripts/sync_assets.py         # 首次：从 EndfieldUnpacker/_fullmap 拷素材
+cd apps/web && pnpm install && cd ../..
+scripts/dev.ps1                       # 起 server(9890) + web(3000)
+```
+
+6 GB 显卡注意：训练前 server 会自动卸载推理引擎；上游 s2 训练 DataLoader 默认 5 worker + pinned memory 在 16 GB 主机上会 OOM，`patches/` 里改成由 `GSV_NUM_WORKERS` / `GSV_PIN_MEMORY` 控制，server 传 2 / 0。主机可用内存 < 4 GB 时训练接口拒绝启动。
 
 ## 现状（2026-09-18）
 
 | 路线 | 状态 | 效果 / 备注 |
 |---|---|---|
-| **GPT-SoVITS v2 微调** | 已训 20 epoch，可推理 | 目前最可用。`outputs/gsv_typhoea_ft.wav` 为样例 |
-| GPT-SoVITS 推理页 | 已增强 | 长音频切分 + ASR + 终末地 CSS，见 `patches/` |
+| **GPT-SoVITS v2 微调** | 已训 22 epoch，可推理 | 目前最可用；Studio 训练页可续训 |
+| GPT-SoVITS 原版推理页 | 备用 | Studio 上线后仅作对照，见 `patches/` |
 | IndexTTS-2.5 零样本 | 跑通 | RTX 3060 6GB 上 RTF≈87（3s 音频要 270s），只能试听 |
-| RVC v2 音色转换 | 已训至 step 5320 | 未做推理验证 |
+| RVC v2 音色转换 | 已训至 step 5320，已导出小模型 + 索引 | 作为合成后处理，一句约 14 s |
 
 训练集：254 条提弗洛斯中文台词，共 23.6 分钟，全部带官方台词文本（来自 ASR + `AudioDialog` 校对）。
 
@@ -22,6 +50,10 @@
 ```
 EndfieldVoiceForge/
 ├── config.py                 所有路径集中在这里；依赖同级的 EndfieldUnpacker
+├── apps/server/              FastAPI 后端（core/: tts_engine, jobs, gsv, rvc, tfevents, library; routers/）
+├── apps/web/                 Next.js 前端（app/ 六个页面, components/ef 终末地组件层）
+├── characters/typhoea.json   角色定义：名称 / 主题色 / 立绘 / 数据集 / 默认权重 / 默认参考
+├── assets.manifest.json      需要的解包 PNG 清单；scripts/sync_assets.py 按它拷贝
 ├── pipeline/                 数据管线（按序号执行）
 │   ├── 01_measure_externals.py   解密 PCK externals 区，量每条 wem 时长并缓存
 │   ├── 02_select_speech.py       按台词时长找最近邻 wem，解码并量 F0 / 有声比
