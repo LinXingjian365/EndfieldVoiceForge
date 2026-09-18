@@ -47,11 +47,21 @@
 
 - DeepSeek 把 90 多个 `_diag_*.py` 试错脚本全堆在 EndfieldUnpacker 根目录，只有 3 个进了 git。本仓库只保留了链路上真正用到的 6 个管线脚本 + 3 个训练/推理脚本。
 - 所有路径原来硬编码 `a:\Hypergryph Launcher\...\EndfieldUnpacker`，现在统一走 `config.py`。
+- 对 GPT-SoVITS 源码的改动（单卡训练修复、推理页增强）导出成 `patches/`，第三方目录本身不入库。
 
-## 五、下一步
+## 五、推理页（09-18 16:04 – 17:20 这段）
+
+- 新版 GPT-SoVITS 的 9874 是**启动器**，推理页 9872 要在启动器里点「开启 TTS 推理 WebUI」才起来。直接在 gpt-sovits 目录下 `python GPT_SoVITS/inference_webui.py` 也行。
+- 已加：长音频切分 + 逐段 ASR + 内嵌播放器；参考文本自动识别；终末地纸墨黄 CSS。详见 `patches/README.md`。
+- 用户的 UI 方向：参考 `终末地Github.docx` 里的前端项目（ReEnd-Components、Talos-Pioneers/ui、endfield-blog-ui 等），把推理页重构成终末地工业编辑风。目前只套了 CSS，没动布局。
+- 内容边界：用户要拿情感丰富的擦边台词测韵律，DeepSeek 给了「羞涩→依赖→暧昧→欲拒还迎」四句非露骨版本，露骨内容拒绝了。
+
+## 六、下一步
 
 - [ ] 试听 `outputs/gsv_typhoea_ft.wav`，判断 e20 是否过拟合；GPT_weights_v2 / SoVITS_weights_v2 下每个 epoch 都有存档，可以对比 e8 / e12 / e16
 - [ ] gsv_infer.py 的参考音频换几条不同情绪的台词看稳定性
 - [ ] RVC G_5320.pth 做一次推理验证，看能否作为 GPT-SoVITS 输出的后处理
 - [ ] 把 `voType=5`（无线电）加进训练集会不会拉低音质（无线电有滤波效果）
 - [ ] 考虑 GPT-SoVITS v2ProPlus / v4 版本（目录已建但权重未下）
+- [ ] 推理页 UI 重构：目前只是 CSS 覆盖，要按终末地风格重排布局（切分工具提到主流程、参考音频区合并）
+- [ ] 切片工具：按识别文本自动命名 / 结果里可改名再保存（DeepSeek 提过但没做）

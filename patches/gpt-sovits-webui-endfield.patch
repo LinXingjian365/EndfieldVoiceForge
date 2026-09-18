@@ -1,0 +1,206 @@
+diff --git a/GPT_SoVITS/inference_webui.py b/GPT_SoVITS/inference_webui.py
+index 7e30057..537e36e 100644
+--- a/GPT_SoVITS/inference_webui.py
++++ b/GPT_SoVITS/inference_webui.py
+@@ -1201,6 +1201,164 @@ def html_left(text, label="p"):
+                 </div>"""
+ 
+ 
++def slice_ref_audio_and_transcribe(audio_path, max_dur=10.0, min_dur=1.0):
++    """长参考音频 -> 多个 ≤max_dur 片段 + ASR 文本。返回 (HTML 预览, 文件路径列表)。"""
++    if not audio_path:
++        raise ValueError(i18n("请先上传长音频"))
++    from tools.asr.funasr_asr import only_asr
++    from tools.my_utils import load_audio
++    from tools.slicer2 import Slicer
++    from scipy.io import wavfile
++    import base64
++
++    sr = 32000
++    audio = load_audio(audio_path, sr)
++    slicer = Slicer(
++        sr=sr, threshold=-40, min_length=2000, min_interval=300, hop_size=10, max_sil_kept=500
++    )
++    base = os.path.splitext(os.path.basename(audio_path))[0]
++    out_dir = os.path.join("output", "ref_slices", base)
++    os.makedirs(out_dir, exist_ok=True)
++
++    rows = []
++    idx = 0
++    for chunk, _start, _end in slicer.slice(audio):
++        dur = len(chunk) / sr
++        pieces = []
++        if dur > max_dur:
++            step = int(max_dur * sr)
++            for i in range(0, len(chunk), step):
++                p = chunk[i : i + step]
++                if len(p) / sr >= min_dur:
++                    pieces.append(p)
++        elif dur >= min_dur:
++            pieces.append(chunk)
++
++        for piece in pieces:
++            seg_name = f"{base}_seg{idx:03d}.wav"
++            seg_path = os.path.join(out_dir, seg_name)
++            m = np.abs(piece).max()
++            if m > 1e-6:
++                piece = piece / m * 0.95
++            wavfile.write(seg_path, sr, (piece * 32767).astype(np.int16))
++            try:
++                text = only_asr(seg_path, "zh").strip()
++            except Exception:
++                text = ""
++            rows.append((seg_name, text, seg_path))
++            idx += 1
++
++    if not rows:
++        raise ValueError(i18n("未切分出有效片段，请检查音频"))
++
++    items = []
++    for i, (seg_name, text, seg_path) in enumerate(rows):
++        with open(seg_path, "rb") as f:
++            b64 = base64.b64encode(f.read()).decode()
++        items.append(
++            '<div class="ef-row">'
++            f'<span class="ef-num">{i + 1:02d}</span>'
++            f'<audio class="ef-audio" controls preload="none" src="data:audio/wav;base64,{b64}"></audio>'
++            f'<span class="ef-text">{text or "—"}</span>'
++            f'<span class="ef-fname">{seg_name}</span>'
++            "</div>"
++        )
++    css = """
++    <style>
++    .ef-slice{background:#f2f2ec;border:1px solid #d8d9d5;padding:14px;}
++    .ef-head{font-size:12px;color:#4a4c48;letter-spacing:.08em;text-transform:uppercase;border-bottom:2px solid #101110;padding-bottom:6px;margin-bottom:10px;font-family:ui-monospace,SFMono-Regular,monospace;}
++    .ef-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #d8d9d5;}
++    .ef-row:last-child{border-bottom:none;}
++    .ef-num{font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums;color:#fff500;background:#101110;padding:2px 6px;min-width:24px;text-align:center;font-size:13px;}
++    .ef-audio{height:36px;flex:1;min-width:200px;}
++    .ef-text{flex:2;color:#101110;font-size:14px;line-height:1.4;}
++    .ef-fname{flex:1;color:#4a4c48;font-size:12px;font-family:ui-monospace,monospace;word-break:break-all;text-align:right;}
++    .ef-audio:focus{outline:2px solid #fff500;outline-offset:1px;}
++    </style>
++    """
++    html = (
++        f'<div class="ef-slice">{css}'
++        f'<div class="ef-head">{i18n("切分结果")} · {len(rows)} {i18n("段")}</div>'
++        f'{"".join(items)}</div>'
++    )
++    return html, [r[2] for r in rows]
++
++
++def recognize_ref_text(audio_path):
++    """识别参考音频的文本（ASR），自动填入参考文本。"""
++    if not audio_path:
++        raise ValueError(i18n("请先上传参考音频"))
++    from tools.asr.funasr_asr import only_asr
++
++    text = only_asr(audio_path, "zh").strip()
++    if not text:
++        raise ValueError(i18n("未能识别出文本，请检查音频或手动填写"))
++    return text
++
++
++# ===== 终末地工业编辑风（官网视觉语言：纸墨主体 + 信号黄 + 全直角）=====
++ENDFIELD_CSS = """
++:root {
++    --ef-paper: #e8e8e2;
++    --ef-panel: #f2f2ec;
++    --ef-panel-2: #dcddd6;
++    --ef-ink: #101110;
++    --ef-ink-2: #4a4c48;
++    --ef-line: #d8d9d5;
++    --ef-line-2: #b6b8b3;
++    --ef-accent: #fff500;
++    --ef-accent-deep: #e8e000;
++}
++body { background: var(--ef-paper) !important; }
++.gradio-container {
++    background: var(--ef-paper) !important;
++    color: var(--ef-ink) !important;
++}
++/* 全直角工业风：先清零，再保留圆形形状 */
++.gradio-container * { border-radius: 0 !important; }
++/* 纸墨主体，强调色只做信号 */
++.gradio-container button[class*="primary"] {
++    background: var(--ef-accent) !important;
++    color: var(--ef-ink) !important;
++    border: 1px solid var(--ef-ink) !important;
++    font-weight: 700 !important;
++}
++.gradio-container button[class*="primary"]:hover {
++    background: var(--ef-accent-deep) !important;
++}
++.gradio-container button[class*="secondary"] {
++    background: var(--ef-panel) !important;
++    color: var(--ef-ink) !important;
++    border: 1px solid var(--ef-line-2) !important;
++}
++.gradio-container textarea,
++.gradio-container input[type="text"],
++.gradio-container input[type="number"] {
++    background: var(--ef-panel) !important;
++    color: var(--ef-ink) !important;
++    border: 1px solid var(--ef-line-2) !important;
++}
++.gradio-container .block,
++.gradio-container [class*="block"] {
++    background: transparent !important;
++}
++.gradio-container h1,
++.gradio-container h2,
++.gradio-container h3 {
++    border-left: 4px solid var(--ef-ink);
++    padding-left: 12px;
++    letter-spacing: .04em;
++    color: var(--ef-ink) !important;
++}
++::selection { background: var(--ef-accent) !important; color: var(--ef-ink) !important; }
++.gradio-container *:focus-visible {
++    outline: 2px solid var(--ef-accent) !important;
++    outline-offset: 1px !important;
++}
++"""
++css = css + ENDFIELD_CSS
++
++
+ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css) as app:
+     gr.HTML(
+         top_html.format(
+@@ -1247,7 +1405,9 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
+                         + i18n("听不清参考音频说的啥(不晓得写啥)可以开。开启后无视填写的参考文本。")
+                     )
+                 )
+-                prompt_text = gr.Textbox(label=i18n("参考音频的文本"), value="", lines=5, max_lines=5, scale=1)
++                with gr.Row():
++                    prompt_text = gr.Textbox(label=i18n("参考音频的文本"), value="", lines=5, max_lines=5, scale=10)
++                    asr_ref_btn = gr.Button(value=i18n("识别参考文本"), variant="secondary", scale=2, size="sm")
+             with gr.Column(scale=14):
+                 prompt_language = gr.Dropdown(
+                     label=i18n("参考音频的语种"),
+@@ -1292,6 +1452,25 @@ with gr.Blocks(title="GPT-SoVITS WebUI", analytics_enabled=False, js=js, css=css
+                     show_label=True,
+                     visible=False if model_version != "v3" else True,
+                 )
++        with gr.Accordion(i18n("长参考音频切分工具：>10秒音频自动切分并识别文本"), open=False):
++            gr.Markdown(
++                i18n("上传超过10秒的音频，自动按静音切成≤10秒的片段并识别每段文本，可直接下载当作参考音频用。首次点击会加载ASR模型，需等待片刻。")
++            )
++            with gr.Row():
++                slice_audio_in = gr.Audio(label=i18n("长音频（>10秒）"), type="filepath", scale=13)
++                slice_btn = gr.Button(value=i18n("切分并识别文本"), variant="primary", scale=3)
++            slice_result = gr.HTML()
++            slice_files = gr.File(label=i18n("切分出的音频（可下载）"), file_count="multiple")
++            slice_btn.click(
++                fn=slice_ref_audio_and_transcribe,
++                inputs=[slice_audio_in],
++                outputs=[slice_result, slice_files],
++            )
++        asr_ref_btn.click(
++            fn=recognize_ref_text,
++            inputs=[inp_ref],
++            outputs=[prompt_text],
++        )
+         gr.Markdown(html_center(i18n("*请填写需要合成的目标文本和语种模式"), "h3"))
+         with gr.Row():
+             with gr.Column(scale=13):

@@ -1,0 +1,92 @@
+diff --git a/GPT_SoVITS/AR/data/bucket_sampler.py b/GPT_SoVITS/AR/data/bucket_sampler.py
+index d845733..17faeb7 100644
+--- a/GPT_SoVITS/AR/data/bucket_sampler.py
++++ b/GPT_SoVITS/AR/data/bucket_sampler.py
+@@ -39,11 +39,11 @@ class DistributedBucketSampler(Sampler[T_co]):
+         if num_replicas is None:
+             if not dist.is_available():
+                 raise RuntimeError("Requires distributed package to be available")
+-            num_replicas = dist.get_world_size() if torch.cuda.is_available() else 1
++            num_replicas = dist.get_world_size() if dist.is_initialized() else 1
+         if rank is None:
+             if not dist.is_available():
+                 raise RuntimeError("Requires distributed package to be available")
+-            rank = dist.get_rank() if torch.cuda.is_available() else 0
++            rank = dist.get_rank() if dist.is_initialized() else 0
+             if torch.cuda.is_available():
+                 torch.cuda.set_device(rank)
+         if rank >= num_replicas or rank < 0:
+diff --git a/GPT_SoVITS/s1_train.py b/GPT_SoVITS/s1_train.py
+index 1176f0b..96207f0 100644
+--- a/GPT_SoVITS/s1_train.py
++++ b/GPT_SoVITS/s1_train.py
+@@ -114,12 +114,10 @@ def main(args):
+         # val_check_interval=9999999999999999999999,###不要验证
+         # check_val_every_n_epoch=None,
+         limit_val_batches=0,
+-        devices=-1 if torch.cuda.is_available() else 1,
++        devices=1,
+         benchmark=False,
+         fast_dev_run=False,
+-        strategy=DDPStrategy(process_group_backend="nccl" if platform.system() != "Windows" else "gloo")
+-        if torch.cuda.is_available()
+-        else "auto",
++        strategy="auto",
+         precision=config["train"]["precision"],
+         logger=logger,
+         num_sanity_val_steps=0,
+diff --git a/GPT_SoVITS/s2_train.py b/GPT_SoVITS/s2_train.py
+index 333e6a0..e7474bc 100644
+--- a/GPT_SoVITS/s2_train.py
++++ b/GPT_SoVITS/s2_train.py
+@@ -77,12 +77,13 @@ def run(rank, n_gpus, hps):
+         writer = SummaryWriter(log_dir=hps.s2_ckpt_dir)
+         writer_eval = SummaryWriter(log_dir=os.path.join(hps.s2_ckpt_dir, "eval"))
+ 
+-    dist.init_process_group(
+-        backend="gloo" if os.name == "nt" or not torch.cuda.is_available() else "nccl",
+-        init_method="env://?use_libuv=False",
+-        world_size=n_gpus,
+-        rank=rank,
+-    )
++    if n_gpus > 1:
++        dist.init_process_group(
++            backend="gloo" if os.name == "nt" or not torch.cuda.is_available() else "nccl",
++            init_method="env://?use_libuv=False",
++            world_size=n_gpus,
++            rank=rank,
++        )
+     torch.manual_seed(hps.train.seed)
+     if torch.cuda.is_available():
+         torch.cuda.set_device(rank)
+@@ -196,10 +197,10 @@ def run(rank, n_gpus, hps):
+         betas=hps.train.betas,
+         eps=hps.train.eps,
+     )
+-    if torch.cuda.is_available():
++    if torch.cuda.is_available() and n_gpus > 1:
+         net_g = DDP(net_g, device_ids=[rank], find_unused_parameters=True)
+         net_d = DDP(net_d, device_ids=[rank], find_unused_parameters=True)
+-    else:
++    elif not torch.cuda.is_available():
+         net_g = net_g.to(device)
+         net_d = net_d.to(device)
+ 
+@@ -238,7 +239,7 @@ def run(rank, n_gpus, hps):
+                     torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
+                     strict=False,
+                 )
+-                if torch.cuda.is_available()
++                if hasattr(net_g, "module")
+                 else net_g.load_state_dict(
+                     torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
+                     strict=False,
+@@ -256,7 +257,7 @@ def run(rank, n_gpus, hps):
+                 net_d.module.load_state_dict(
+                     torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"], strict=False
+                 )
+-                if torch.cuda.is_available()
++                if hasattr(net_d, "module")
+                 else net_d.load_state_dict(
+                     torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"],
+                 ),

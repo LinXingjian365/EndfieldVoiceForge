@@ -11,6 +11,7 @@
 | 路线 | 状态 | 效果 / 备注 |
 |---|---|---|
 | **GPT-SoVITS v2 微调** | 已训 20 epoch，可推理 | 目前最可用。`outputs/gsv_typhoea_ft.wav` 为样例 |
+| GPT-SoVITS 推理页 | 已增强 | 长音频切分 + ASR + 终末地 CSS，见 `patches/` |
 | IndexTTS-2.5 零样本 | 跑通 | RTX 3060 6GB 上 RTF≈87（3s 音频要 270s），只能试听 |
 | RVC v2 音色转换 | 已训至 step 5320 | 未做推理验证 |
 
@@ -31,6 +32,7 @@ EndfieldVoiceForge/
 ├── gsv_train.py / gsv_infer.py   GPT-SoVITS v2 训练 / 推理编排
 ├── rvc_train.py                  RVC 训练编排
 ├── indextts_clone.py             IndexTTS 零样本克隆
+├── patches/                      对 gpt-sovits 源码的改动（单卡训练修复、推理页增强），clone 上游后 git apply
 ├── third_party/   (gitignore)   gpt-sovits@48b1a01、RVC@81eed5e、index-tts@ee40fa7 各自 clone + venv + 权重
 ├── datasets/      (gitignore)   typhoea_train/（wav）、typhoea_train_asr/typhoea.list、cache/
 └── outputs/       (gitignore)   生成音频
@@ -66,6 +68,10 @@ python rvc_train.py all
 
 # IndexTTS 零样本
 third_party/index-tts/.venv/Scripts/python.exe indextts_clone.py
+
+# GPT-SoVITS 推理页（端口 9872，启动即加载微调权重）
+cd third_party/gpt-sovits
+..\index-tts\.venv\Scripts\python.exe GPT_SoVITS/inference_webui.py
 ```
 
 ## 关键发现（详见 [LESSONS.md](LESSONS.md)）
