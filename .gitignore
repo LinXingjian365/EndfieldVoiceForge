@@ -1,0 +1,29 @@
+# ===== 第三方引擎（各自 clone，含 venv / 预训练权重，几十 GB）=====
+third_party/
+
+# ===== 数据集：解包出的官方语音、训练集、缓存（不公开分发）=====
+datasets/
+
+# ===== 生成产物 =====
+outputs/
+*.wav
+*.mp3
+*.flac
+*.wem
+*.pth
+*.ckpt
+*.pt
+*.safetensors
+
+# ===== 日志 / 临时 =====
+*.log
+TEMP/
+tmp/
+__pycache__/
+*.py[cod]
+.venv/
+.modelscope_cache/
+.remember/
+
+# 一次性调试脚本
+_*.py
