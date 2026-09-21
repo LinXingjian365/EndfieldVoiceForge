@@ -145,6 +145,23 @@ body {
   background-repeat: no-repeat;
 }
 
+/* 角括号-信号黄(主行动/锁定画框) */
+.corner-bracket-action { position: relative; }
+.corner-bracket-action::after {
+  --b: 2px; --len: 12px; --c: var(--action);
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(var(--c), var(--c)) 0 0 / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 0 0 / var(--b) var(--len),
+    linear-gradient(var(--c), var(--c)) 100% 0 / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 100% 0 / var(--b) var(--len),
+    linear-gradient(var(--c), var(--c)) 0 100% / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 0 100% / var(--b) var(--len),
+    linear-gradient(var(--c), var(--c)) 100% 100% / var(--len) var(--b),
+    linear-gradient(var(--c), var(--c)) 100% 100% / var(--b) var(--len);
+  background-repeat: no-repeat;
+}
+
 /* 幽灵描边字 */
 .ghost-word {
   position: absolute; z-index: 0; pointer-events: none; user-select: none;

@@ -167,6 +167,9 @@ export interface Sample {
   vt: number;
   text: string | null;
   inList: boolean;
+  excluded?: boolean;
+  category?: string;
+  favorite?: boolean;
 }
 
 export interface RvcModels {

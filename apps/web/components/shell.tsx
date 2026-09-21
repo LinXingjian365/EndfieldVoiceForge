@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { AudioWaveform, Database, FlaskConical, Home, Layers, Wrench, Sun, Moon, BookOpen } from "lucide-react";
+import { AudioWaveform, Database, FlaskConical, Home, Layers, Wrench, Sun, Moon, BookOpen, MessageSquare, Settings, ScrollText } from "lucide-react";
 import { api, assetUrl, type Status } from "@/lib/api";
 import { useStudio } from "@/lib/store";
 import { cn, fmtBytes } from "@/lib/utils";
+import { SystemControls } from "@/components/system-controls";
 
 const NAV = [
   { href: "/", label: "枢纽", en: "HUB", icon: Home },
@@ -14,8 +15,11 @@ const NAV = [
   { href: "/data", label: "数据", en: "DATA", icon: Database },
   { href: "/train", label: "训练", en: "TRAIN", icon: FlaskConical },
   { href: "/models", label: "模型", en: "MODELS", icon: Layers },
+  { href: "/chat", label: "对话", en: "CHAT", icon: MessageSquare },
   { href: "/tools", label: "工具", en: "TOOLS", icon: Wrench },
   { href: "/guide", label: "指南", en: "GUIDE", icon: BookOpen },
+  { href: "/logs", label: "日志", en: "LOGS", icon: ScrollText },
+  { href: "/settings", label: "设置", en: "SETTINGS", icon: Settings },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -26,6 +30,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="grid h-full grid-cols-[var(--rail-w)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_var(--status-h)]">
+      <SystemControls />
       {/* 左缘竖排图标导航轨 */}
       <nav aria-label="主导航" className="row-span-1 flex flex-col border-r border-line-1 bg-surface-0">
         <Link href="/" className="flex h-[var(--header-h)] items-center justify-center border-b border-line-1">

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_SC, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { ToastProvider } from "@/components/toast";
 import { Shell } from "@/components/shell";
 
 const notoSC = Noto_Sans_SC({
@@ -28,7 +29,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN" className={`${notoSC.variable} ${jetbrains.variable} h-full`}>
       <body className="h-full">
         <Providers>
-          <Shell>{children}</Shell>
+          <ToastProvider>
+            <Shell>{children}</Shell>
+          </ToastProvider>
         </Providers>
       </body>
     </html>
