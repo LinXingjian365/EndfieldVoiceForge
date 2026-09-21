@@ -28,6 +28,11 @@ __pycache__/
 # 一次性调试脚本
 _*.py
 
+# ===== 密钥 / 本地配置（不上传 GitHub）=====
+.env
+*.env
+.env.local
+
 # ===== apps =====
 assets/
 apps/web/node_modules/
@@ -36,3 +41,6 @@ apps/web/out/
 apps/web/next-env.d.ts
 apps/web/*.tsbuildinfo
 apps/web/.env*.local
+
+# 解包出的角色资料（本地生成，不上传）
+lore/

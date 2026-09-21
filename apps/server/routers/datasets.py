@@ -68,6 +68,22 @@ def _read_list(list_path: str) -> dict[str, str]:
     return m
 
 
+CATEGORIES = ["dialog", "commvo", "combat", "radio", "other"]
+
+
+def _infer_category(name: str) -> str:
+    """按 wem 文件名推断类别:对话/语气喘气/战斗受击/电台/其他。"""
+    n = name.lower()
+    if "combat" in n or "attack" in n or "hurt" in n or "remind" in n or "bark" in n:
+        return "combat"
+    if "commvo" in n or "laugh" in n or "sigh" in n or "sick" in n or "neutral" in n or "positive" in n or "negative" in n or "breath" in n:
+        return "commvo"
+    if "radio" in n:
+        return "radio"
+    # 其余 chr_0034_typhoea 的角色台词/独白/互动(mono/sim/interact/explore 等)与 au_dlg/au_voice 一律视为对话
+    return "dialog"
+
+
 @router.get("/{cid}/samples")
 def samples(cid: str):
     c = _char(cid)
@@ -86,15 +102,23 @@ def samples(cid: str):
             rows.append({
                 "idx": m["idx"], "wav": paths.rel_to_root(ap), "path": m.get("path", ""), "dur": m.get("dur", 0),
                 "f0": m.get("f0", 0), "voiced": m.get("voiced", 0), "vt": m.get("vt", -1),
-                "text": texts.get(key), "inList": key in texts,
+                "text": texts.get(key), "inList": key in texts, "excluded": bool(m.get("excluded", False)),
+                "category": m.get("category") or _infer_category(m.get("path", "")),
+                "favorite": bool(m.get("favorite", False)),
             })
     else:
         for fn in sorted(os.listdir(wav_dir)) if os.path.isdir(wav_dir) else []:
             if fn.endswith(".wav"):
                 ap = os.path.join(wav_dir, fn)
                 key = os.path.normcase(os.path.abspath(ap))
-                rows.append({"idx": None, "wav": paths.rel_to_root(ap), "path": fn, "dur": 0, "f0": 0, "voiced": 0, "vt": -1, "text": texts.get(key), "inList": key in texts})
-    return {"count": len(rows), "inList": sum(1 for r in rows if r["inList"]), "totalDur": round(sum(r["dur"] for r in rows), 1), "samples": rows}
+                rows.append({"idx": None, "wav": paths.rel_to_root(ap), "path": fn, "dur": 0, "f0": 0, "voiced": 0, "vt": -1, "text": texts.get(key), "inList": key in texts, "excluded": False, "category": _infer_category(fn), "favorite": False})
+    kept = [r for r in rows if not r["excluded"]]
+    return {
+        "count": len(kept), "inList": sum(1 for r in kept if r["inList"]),
+        "totalDur": round(sum(r["dur"] for r in kept), 1),
+        "excluded": sum(1 for r in rows if r["excluded"]),
+        "samples": rows,
+    }
 
 
 class TextPatch(BaseModel):
@@ -130,6 +154,106 @@ def set_text(cid: str, wav: str, body: TextPatch):
     return {"ok": True, "inList": bool(body.text.strip()), "count": len(lines)}
 
 
+class CategoryPatch(BaseModel):
+    category: str
+
+
+@router.patch("/{cid}/samples/category")
+def set_category(cid: str, wav: str, body: CategoryPatch):
+    """手动覆盖样本类别。"""
+    c = _char(cid)
+    ap = paths.resolve(wav)
+    if not os.path.isfile(ap):
+        raise HTTPException(404, "wav not found")
+    if body.category not in CATEGORIES:
+        raise HTTPException(400, f"category must be one of {CATEGORIES}")
+    wav_dir = paths.resolve(c["dataset"]["wavDir"])
+    mp = os.path.join(wav_dir, "manifest.json")
+    if not os.path.isfile(mp):
+        raise HTTPException(404, "manifest not found")
+    m = json.load(open(mp, encoding="utf-8"))
+    name = os.path.basename(ap)
+    entry = next((x for x in m if os.path.basename(x.get("wav", "")) == name), None)
+    if entry is None:
+        raise HTTPException(404, "sample not in manifest")
+    entry["category"] = body.category
+    json.dump(m, open(mp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    return {"ok": True, "category": body.category}
+
+
+class FavoritePatch(BaseModel):
+    favorite: bool
+
+
+class CategoryBatchBody(BaseModel):
+    wavs: list[str]
+    category: str
+
+
+@router.post("/{cid}/samples/category_batch")
+def set_category_batch(cid: str, body: CategoryBatchBody):
+    """批量设置样本类别。"""
+    if body.category not in CATEGORIES:
+        raise HTTPException(400, f"category must be one of {CATEGORIES}")
+    c = _char(cid)
+    wav_dir = paths.resolve(c["dataset"]["wavDir"])
+    mp = os.path.join(wav_dir, "manifest.json")
+    if not os.path.isfile(mp):
+        raise HTTPException(404, "manifest not found")
+    m = json.load(open(mp, encoding="utf-8"))
+    names = {os.path.basename(paths.resolve(w)) for w in body.wavs}
+    changed = 0
+    for entry in m:
+        if os.path.basename(entry.get("wav", "")) in names:
+            entry["category"] = body.category
+            changed += 1
+    json.dump(m, open(mp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    return {"ok": True, "changed": changed}
+
+
+@router.post("/{cid}/samples/autocat")
+def autocat(cid: str):
+    """按 wem 源文件名自动分类全部样本并持久化(对话/语气/战斗/电台), 类别不再随列表飘移。"""
+    c = _char(cid)
+    wav_dir = paths.resolve(c["dataset"]["wavDir"])
+    mp = os.path.join(wav_dir, "manifest.json")
+    if not os.path.isfile(mp):
+        raise HTTPException(404, "manifest not found")
+    m = json.load(open(mp, encoding="utf-8"))
+    changed = 0
+    for entry in m:
+        cat = _infer_category(entry.get("path", ""))
+        if entry.get("category") != cat:
+            entry["category"] = cat
+            changed += 1
+    json.dump(m, open(mp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    return {"ok": True, "changed": changed}
+
+
+@router.patch("/{cid}/samples/favorite")
+def set_favorite(cid: str, wav: str, body: FavoritePatch):
+    """收藏/取消收藏样本(favorite 置顶展示用,持久化到 manifest.json)。"""
+    c = _char(cid)
+    ap = paths.resolve(wav)
+    if not os.path.isfile(ap):
+        raise HTTPException(404, "wav not found")
+    wav_dir = paths.resolve(c["dataset"]["wavDir"])
+    mp = os.path.join(wav_dir, "manifest.json")
+    if not os.path.isfile(mp):
+        raise HTTPException(404, "manifest not found")
+    m = json.load(open(mp, encoding="utf-8"))
+    name = os.path.basename(ap)
+    entry = next((x for x in m if os.path.basename(x.get("wav", "")) == name), None)
+    if entry is None:
+        raise HTTPException(404, "sample not in manifest")
+    if body.favorite:
+        entry["favorite"] = True
+    else:
+        entry.pop("favorite", None)
+    json.dump(m, open(mp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    return {"ok": True, "favorite": body.favorite}
+
+
 @router.delete("/{cid}/samples")
 def delete_sample(cid: str, wav: str):
     c = _char(cid)
@@ -147,6 +271,79 @@ def delete_sample(cid: str, wav: str):
         m = [x for x in m if os.path.join(wav_dir, x["wav"]) != ap]
         json.dump(m, open(mp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     return {"ok": True}
+
+
+EXCLUDED_DIR = "_excluded"
+
+
+class WavsBody(BaseModel):
+    wavs: list[str]
+
+
+class PrefixBody(BaseModel):
+    prefix: str
+
+
+def _set_excluded(cid: str, rels: list[str], want: bool) -> dict:
+    """把样本移入/移出 _excluded/ 子目录(预处理只扫顶层文件, 移入即自动退出训练), 并同步 manifest 与 .list。"""
+    c = _char(cid)
+    wav_dir = paths.resolve(c["dataset"]["wavDir"])
+    mp = os.path.join(wav_dir, "manifest.json")
+    if not os.path.isfile(mp):
+        raise HTTPException(404, "manifest not found")
+    m = json.load(open(mp, encoding="utf-8"))
+    ex_dir = os.path.join(wav_dir, EXCLUDED_DIR)
+    changed = 0
+    for rel in rels:
+        name = os.path.basename(paths.resolve(rel))
+        entry = next((x for x in m if os.path.basename(x.get("wav", "")) == name), None)
+        if entry is None or bool(entry.get("excluded", False)) == want:
+            continue
+        if want:
+            set_text(cid, rel, TextPatch(text=""))  # 先从 .list 移除(需在移动前, set_text 要求文件存在)
+            os.makedirs(ex_dir, exist_ok=True)
+            src = os.path.join(wav_dir, entry["wav"])
+            if os.path.isfile(src):
+                os.replace(src, os.path.join(ex_dir, name))
+            entry["wav"] = f"{EXCLUDED_DIR}/{name}"
+            entry["excluded"] = True
+        else:
+            src = os.path.join(wav_dir, entry["wav"])
+            if os.path.isfile(src):
+                os.replace(src, os.path.join(wav_dir, name))
+            entry["wav"] = name
+            entry.pop("excluded", None)
+        changed += 1
+    json.dump(m, open(mp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    return {"ok": True, "changed": changed}
+
+
+@router.post("/{cid}/samples/exclude")
+def exclude_samples(cid: str, body: WavsBody):
+    return _set_excluded(cid, body.wavs, True)
+
+
+@router.post("/{cid}/samples/restore")
+def restore_samples(cid: str, body: WavsBody):
+    return _set_excluded(cid, body.wavs, False)
+
+
+@router.post("/{cid}/samples/exclude_prefix")
+def exclude_prefix(cid: str, body: PrefixBody):
+    """按前缀批量剔除(匹配 wav 文件名或来源 path, 如 au_radio_)。"""
+    c = _char(cid)
+    wav_dir = paths.resolve(c["dataset"]["wavDir"])
+    mp = os.path.join(wav_dir, "manifest.json")
+    if not os.path.isfile(mp) or not body.prefix.strip():
+        raise HTTPException(400, "bad prefix")
+    m = json.load(open(mp, encoding="utf-8"))
+    rels = [
+        paths.rel_to_root(os.path.join(wav_dir, x["wav"]))
+        for x in m
+        if not x.get("excluded")
+        and (os.path.basename(x.get("wav", "")).startswith(body.prefix) or x.get("path", "").startswith(body.prefix))
+    ]
+    return _set_excluded(cid, rels, True)
 
 
 @router.get("/{cid}/list")
