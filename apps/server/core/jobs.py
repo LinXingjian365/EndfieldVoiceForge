@@ -17,6 +17,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Callable
 from typing import Any
 
 from . import paths
@@ -51,6 +52,7 @@ class Job:
     _subs: list[asyncio.Queue] = field(default_factory=list, repr=False)
     _loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
     log_path: str = ""
+    on_done: Callable[["Job"], None] | None = field(default=None, repr=False)
 
     def public(self, tail: int = 30) -> dict:
         return {
@@ -95,7 +97,7 @@ def running_of_kind(kind: str) -> Job | None:
     return None
 
 
-def launch(kind: str, title: str, cmd: list[str], cwd: str, env: dict[str, str] | None = None, meta: dict | None = None) -> Job:
+def launch(kind: str, title: str, cmd: list[str], cwd: str, env: dict[str, str] | None = None, meta: dict | None = None, on_done: Callable[[Job], None] | None = None) -> Job:
     job = Job(
         id=uuid.uuid4().hex[:12],
         kind=kind,
@@ -105,6 +107,7 @@ def launch(kind: str, title: str, cmd: list[str], cwd: str, env: dict[str, str] 
         env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", **(env or {})},
         meta=meta or {},
         detached=kind in DETACHED_KINDS,
+        on_done=on_done,
     )
     job.log_path = os.path.join(paths.JOBS_LOG_DIR, f"{job.id}.log")
     try:
@@ -220,6 +223,12 @@ def _finalize(job: Job):
     job.ended_at = time.time()
     if job.status != "cancelled":
         job.status = "done" if job.exit_code == 0 else "failed"
+    if job.status == "done" and job.on_done:
+        try:
+            job.on_done(job)
+        except Exception as e:  # 回调失败不能让任务变成僵尸,记进日志让前端看得到
+            job.lines.append(f"[on_done] {e!r}")
+            job.status = "failed"
     job._emit({"type": "status", "status": job.status, "exit_code": job.exit_code})
     job._emit({"type": "end"})
     _clear_persist(job)
