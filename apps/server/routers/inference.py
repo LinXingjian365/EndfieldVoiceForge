@@ -9,9 +9,15 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from ..core import characters, library, paths, tts_engine
+from ..core import characters, jobs as jobmgr, library, paths, tts_engine
 
 router = APIRouter(tags=["inference"])
+
+TRAIN_KINDS = ("train:s2", "train:s1", "rvc:train")
+
+
+def _training_running() -> bool:
+    return any(jobmgr.running_of_kind(k) for k in TRAIN_KINDS)
 
 
 class TtsRequest(BaseModel):
@@ -68,6 +74,10 @@ def unload_models():
 @router.post("/tts")
 async def tts(body: TtsRequest):
     eng = tts_engine.get()
+    # 训练期间自动降级 CPU 推理(慢但可用),训练结束切回 CUDA
+    want = "cpu" if _training_running() else "cuda:0"
+    if eng.device != want:
+        eng.set_device(want)
     char = characters.get(body.character) if body.character else None
     if eng.tts is None:
         if not char:

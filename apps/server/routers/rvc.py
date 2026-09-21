@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from ..core import jobs as jobmgr, library, paths, rvc, tfevents, tts_engine
-from .training import _guard_training
+from .training import RVC_MIN_FREE_RAM_GB, _guard_training
 
 router = APIRouter(prefix="/rvc", tags=["rvc"])
 
@@ -42,7 +42,7 @@ class TrainBody(BaseModel):
 def train(b: TrainBody):
     if jobmgr.running_of_kind("rvc:train"):
         raise HTTPException(409, "rvc training already running")
-    _guard_training(True)
+    _guard_training(True, RVC_MIN_FREE_RAM_GB)
     cmd, env, cwd = rvc.train_cmd(b.exp, b.total_epoch, b.save_every, b.batch_size, b.keep_all)
     return jobmgr.launch("rvc:train", f"RVC 训练 {b.exp} → e{b.total_epoch}", cmd, cwd, env, meta={"exp": b.exp, "epochs": b.total_epoch}).public()
 
@@ -76,19 +76,38 @@ def build_index(exp: str):
     return jobmgr.launch(kind, f"RVC 索引 {exp}", cmd, cwd, env, meta={"exp": exp}).public()
 
 
+class RepreprocessBody(BaseModel):
+    exp: str = "typhoea"
+    n_p: int = 4
+
+
+@router.post("/repreprocess")
+def repreprocess(b: RepreprocessBody):
+    kind = "rvc:preprocess"
+    if jobmgr.running_of_kind(kind):
+        raise HTTPException(409, "already running")
+    if jobmgr.running_of_kind("rvc:train"):
+        raise HTTPException(409, "rvc training is running")
+    trainset = os.path.join(paths.DATASETS_DIR, "typhoea_train")
+    cmd, env, cwd = rvc.repreprocess_cmd(b.exp, trainset, b.n_p)
+    return jobmgr.launch(kind, f"RVC 重新预处理 {b.exp}", cmd, cwd, env, meta={"exp": b.exp}).public()
+
+
 class ConvertBody(BaseModel):
     generation_id: int | None = None
     path: str | None = None
     model: str
     pitch: int = 0
     f0_method: str = "rmvpe"
-    index_rate: float = 0.5
+    index_rate: float = 0.75
     protect: float = 0.33
     rms_mix_rate: float = 1.0
 
 
 @router.post("/convert")
-async def convert(b: ConvertBody):
+def convert(b: ConvertBody):
+    if jobmgr.running_of_kind("rvc:convert"):
+        raise HTTPException(409, "rvc convert already running")
     src_item = library.get(b.generation_id) if b.generation_id is not None else None
     if b.generation_id is not None and not src_item:
         raise HTTPException(404, "generation not found")
@@ -101,23 +120,49 @@ async def convert(b: ConvertBody):
         raise HTTPException(409, "training is running; RVC would OOM")
     base = os.path.splitext(os.path.basename(src))[0]
     dst = os.path.join(paths.GENERATED_DIR, f"{base}_rvc.wav")
-    try:
-        elapsed = await run_in_threadpool(rvc.convert, b.model, src, dst, b.pitch, b.f0_method, b.index_rate, b.protect, b.rms_mix_rate)
-    except RuntimeError as e:
-        raise HTTPException(500, f"rvc failed: {e}") from e
+    cmd, env, cwd = rvc.convert_cmd(b.model, src, dst, b.pitch, b.f0_method, b.index_rate, b.protect, b.rms_mix_rate)
+    meta = {
+        "dst": paths.rel_to_root(dst),
+        "model": b.model,
+        "character": src_item["character"] if src_item else "unknown",
+        "text": src_item["text"] if src_item else base,
+        "ref_audio": src_item["ref_audio"] if src_item else None,
+        "prompt_text": src_item["prompt_text"] if src_item else None,
+        "gpt": src_item["gpt"] if src_item else None,
+        "sovits": src_item["sovits"] if src_item else None,
+        "params": {**(src_item["params"] if src_item else {}), "rvc": b.model_dump(exclude={"generation_id", "path"}), "source_id": b.generation_id},
+        "seed": src_item["seed"] if src_item else -1,
+    }
+    return jobmgr.launch("rvc:convert", f"RVC 音色转换 {base}", cmd, cwd, env, meta=meta).public()
+
+
+class FinalizeBody(BaseModel):
+    job_id: str
+
+
+@router.post("/finalize")
+def finalize(b: FinalizeBody):
+    j = jobmgr.get(b.job_id)
+    if not j or j.kind != "rvc:convert":
+        raise HTTPException(404, "job not found")
+    if j.status != "done":
+        raise HTTPException(409, f"job not done ({j.status})")
+    dst = paths.resolve(j.meta["dst"])
+    if not os.path.isfile(dst):
+        raise HTTPException(500, "output file missing")
     info = sf.info(dst)
-    item = library.add(
-        character=src_item["character"] if src_item else "unknown",
-        text=src_item["text"] if src_item else base,
-        ref_audio=src_item["ref_audio"] if src_item else None,
-        prompt_text=src_item["prompt_text"] if src_item else None,
-        gpt=src_item["gpt"] if src_item else None,
-        sovits=src_item["sovits"] if src_item else None,
-        params={**(src_item["params"] if src_item else {}), "rvc": b.model_dump(exclude={"generation_id", "path"}), "source_id": b.generation_id},
-        wav=paths.rel_to_root(dst),
+    m = j.meta
+    return library.add(
+        character=m["character"],
+        text=m["text"],
+        ref_audio=m["ref_audio"],
+        prompt_text=m["prompt_text"],
+        gpt=m["gpt"],
+        sovits=m["sovits"],
+        params=m["params"],
+        wav=m["dst"],
         duration=info.duration,
-        seed=src_item["seed"] if src_item else -1,
-        elapsed=elapsed,
+        seed=m["seed"],
+        elapsed=round((j.ended_at or 0) - (j.started_at or 0), 2),
         tags=["rvc"],
     )
-    return item

@@ -93,14 +93,13 @@ def index_cmd(exp: str):
     return [paths.PY_RVC, "-m", "train.train_index", exp, "v2", "assets/indices", "4", "single"], {"PYTHONPATH": paths.RVC_DIR}, paths.RVC_DIR
 
 
-def convert(model: str, src: str, dst: str, pitch: int = 0, f0_method: str = "rmvpe", index_rate: float = 0.5, protect: float = 0.33, rms_mix_rate: float = 1.0) -> float:
-    """返回耗时秒。index_rate=0 时不需要索引。"""
+def repreprocess_cmd(exp: str, trainset: str, n_p: int = 4):
+    """重新预处理(切分->F0->HuBERT->filelist)。trainset 为数据集绝对路径。"""
+    return [paths.PY_RVC, "_repreprocess_all.py", trainset, exp, str(n_p)], {"PYTHONPATH": paths.RVC_DIR}, paths.RVC_DIR
+
+
+def convert_cmd(model: str, src: str, dst: str, pitch: int = 0, f0_method: str = "rmvpe", index_rate: float = 0.75, protect: float = 0.33, rms_mix_rate: float = 1.0):
+    """返回 (cmd, env, cwd),交给 jobs.launch 流式执行(SSE 推送日志)。index_rate=0 时不需要索引。"""
     args = ["infer/cli.py", "--model", model, "--input", src, "--output", dst, "--pitch", str(pitch), "--f0-method", f0_method,
             "--index-rate", str(index_rate), "--protect", str(protect), "--rms-mix-rate", str(rms_mix_rate), "--overwrite"]
-    import time
-
-    t0 = time.time()
-    r = _run(args, timeout=900)
-    if r.returncode != 0 or not os.path.isfile(dst):
-        raise RuntimeError((r.stdout + r.stderr)[-2000:])
-    return time.time() - t0
+    return [paths.PY_RVC, *args], {"PYTHONPATH": paths.RVC_DIR}, paths.RVC_DIR

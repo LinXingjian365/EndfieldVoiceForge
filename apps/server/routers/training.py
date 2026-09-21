@@ -65,18 +65,29 @@ def merge(stage: str, exp: str):
 
 
 MIN_FREE_RAM_GB = 4.0
+# RVC(batch_size=1、40k 模型)实际内存需求远低于 GPT-SoVITS s2 的 DataLoader + pinned memory,单独放宽门槛
+RVC_MIN_FREE_RAM_GB = 2.5
 
 
-def _guard_training(free_engine: bool):
+def _guard_training(free_engine: bool, min_ram_gb: float = MIN_FREE_RAM_GB):
     if any(jobmgr.running_of_kind(k) for k in ("train:s2", "train:s1", "rvc:train")):
         raise HTTPException(409, "a training job is already running")
     if free_engine:
-        tts_engine.get().unload()
+        try:
+            tts_engine.get().unload()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
     import psutil
 
     free_gb = psutil.virtual_memory().available / 2**30
-    if free_gb < MIN_FREE_RAM_GB:
-        raise HTTPException(507, f"主机可用内存仅 {free_gb:.1f} GB,训练需要 ≥{MIN_FREE_RAM_GB:g} GB;请关闭浏览器/其他进程后重试")
+    if free_gb < min_ram_gb:
+        raise HTTPException(507, f"主机可用内存仅 {free_gb:.1f} GB,训练需要 ≥{min_ram_gb:g} GB;请关闭浏览器/其他进程后重试")
 
 
 class S2Body(BaseModel):

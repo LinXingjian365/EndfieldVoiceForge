@@ -25,7 +25,18 @@
 - `apps/web`：Next.js 16 + React 19 + Tailwind v4；视觉遵循终末地设计语言（烟灰底 / 信号黄行动色 / 直角与切角 / 角括号选中 / 幽灵字），角色主题色由 `characters/*.json` 注入
 - 解包素材经 `scripts/sync_assets.py` 按 `assets.manifest.json` 拷入 `assets/`（gitignore），server 以 `/assets` 挂载
 
-### 启动
+### 启动 / 退出
+
+**最简单的方式（推荐）**：双击项目根目录的 `start.bat`（或桌面的 `EndfieldVoiceForge` 快捷方式），会自动：
+1. 首次自动同步素材（`assets/characters` 不存在时）
+2. 开两个**独立窗口**分别跑 server(9890) + web(3000)
+3. 6 秒后自动打开浏览器 http://localhost:3000
+
+关掉 Trae / 关掉启动用的命令行窗口都**不影响**已启动的服务（它们是独立进程）。
+
+**退出**：双击 `stop.bat`，按端口 9890 / 3000 精准停掉 server 和 web，不误杀其他程序。或者直接关闭那两个服务窗口。
+
+**手动方式（等价）**：
 
 ```powershell
 python scripts/sync_assets.py         # 首次：从 EndfieldUnpacker/_fullmap 拷素材
@@ -33,7 +44,9 @@ cd apps/web && pnpm install && cd ../..
 scripts/dev.ps1                       # 起 server(9890) + web(3000)
 ```
 
-6 GB 显卡注意：训练前 server 会自动卸载推理引擎；上游 s2 训练 DataLoader 默认 5 worker + pinned memory 在 16 GB 主机上会 OOM，`patches/` 里改成由 `GSV_NUM_WORKERS` / `GSV_PIN_MEMORY` 控制，server 传 2 / 0。主机可用内存 < 4 GB 时训练接口拒绝启动。
+**训练中也能合成**：开始训练（GPT-SoVITS s1/s2 或 RVC）时会自动把 TTS 推理引擎切到 CPU，释放显存给训练用；此时仍可打文本生成语音，只是 CPU 推理较慢（几秒音频可能十几秒到一两分钟）。训练结束后下次合成会自动切回 CUDA 满速。
+
+6 GB 显卡注意：训练前 server 会把推理引擎切到 CPU 以释放显存；上游 s2 训练 DataLoader 默认 5 worker + pinned memory 在 16 GB 主机上会 OOM，`patches/` 里改成由 `GSV_NUM_WORKERS` / `GSV_PIN_MEMORY` 控制，server 传 2 / 0。主机可用内存 < 4 GB 时训练接口拒绝启动。
 
 ## 现状（2026-09-18）
 

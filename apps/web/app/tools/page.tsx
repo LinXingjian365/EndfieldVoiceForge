@@ -7,6 +7,7 @@ import { api, fileUrl, type Job, type LibraryItem, type RvcModels } from "@/lib/
 import { Panel, ScanDivider, Chip } from "@/components/ef";
 import { HelpTip } from "@/components/ef/help-tip";
 import { Waveform } from "@/components/audio/waveform";
+import { VideoCutter } from "@/components/audio/video-cutter";
 import { Button } from "@/components/ef/button";
 import { Field, Input, Select, Slider } from "@/components/ef/form";
 import { JobLog } from "@/components/job-log";
@@ -141,9 +142,10 @@ function AsrForm({ onJob }: { onJob: (id: string) => void }) {
 function RvcConvertCard() {
   const models = useQuery({ queryKey: ["rvc-models"], queryFn: () => api<RvcModels>("/rvc/models") });
   const [src, setSrc] = useState<{ path: string; name: string } | null>(null);
-  const [f, setF] = useState({ pitch: 0, index_rate: 0.3, protect: 0.2, rms_mix_rate: 0.3, f0_method: "rmvpe" });
+  const [f, setF] = useState({ pitch: 0, index_rate: 0.75, protect: 0.33, rms_mix_rate: 1.0, f0_method: "rmvpe" });
   const [results, setResults] = useState<LibraryItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [convJob, setConvJob] = useState<string | null>(null);
   const model = models.data?.models[0];
 
   async function upload(file: File) {
@@ -156,10 +158,20 @@ function RvcConvertCard() {
       setUploading(false);
     }
   }
+  function adoptSegment(seg: { path: string; name: string; duration: number }) {
+    setSrc({ path: seg.path, name: seg.name });
+  }
   const m = useMutation({
-    mutationFn: () => api<LibraryItem>("/rvc/convert", { method: "POST", json: { path: src!.path, model: model!.file, ...f } }),
-    onSuccess: (item) => setResults((r) => [item, ...r]),
+    mutationFn: () => api<Job>("/rvc/convert", { method: "POST", json: { path: src!.path, model: model!.file, ...f } }),
+    onSuccess: (j) => setConvJob(j.id),
   });
+
+  function onConvDone(j: Job) {
+    if (j.status !== "done") return;
+    api<LibraryItem>("/rvc/finalize", { method: "POST", json: { job_id: j.id } })
+      .then((item) => setResults((r) => [item, ...r]))
+      .catch(() => {});
+  }
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3">
@@ -168,6 +180,11 @@ function RvcConvertCard() {
         <HelpTip k="rvc_what" className="ml-1 inline-flex text-ink-3 hover:text-action-text" />
       </p>
       {!model && <p className="text-xs text-notify">还没有 RVC 模型。去模型页从训练 checkpoint 导出 typhoea.pth。</p>}
+
+      <ScanDivider label="视频取材" />
+      <VideoCutter onCut={adoptSegment} />
+
+      <ScanDivider label="人声来源" />
       <div className="flex items-center gap-2">
         <input type="file" accept="audio/*" className="sr-only" id="rvc-src" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
         <Button variant="secondary" size="sm" icon={<Upload size={14} />} loading={uploading} onClick={() => document.getElementById("rvc-src")?.click()}>上传人声</Button>
@@ -185,8 +202,9 @@ function RvcConvertCard() {
         <Field label="音量包络 rms_mix" help="rvc_rms" value={f.rms_mix_rate.toFixed(2)}><Slider value={f.rms_mix_rate} onChange={(v) => setF({ ...f, rms_mix_rate: v })} min={0} max={1} step={0.05} /></Field>
       </Row>
       <Field label="音高算法" help="rvc_f0_method"><Select value={f.f0_method} onChange={(v) => setF({ ...f, f0_method: v })} options={[{ value: "rmvpe", label: "rmvpe(推荐)" }, { value: "pm", label: "pm(快)" }]} className="w-40" /></Field>
-      <Button variant="action" icon={<Wand2 size={14} />} disabled={!src || !model} loading={m.isPending} onClick={() => m.mutate()} className="self-start">{m.isPending ? "转换中(约 15 s)…" : "转换"}</Button>
+      <Button variant="action" icon={<Wand2 size={14} />} disabled={!src || !model} loading={m.isPending} onClick={() => m.mutate()} className="self-start">{m.isPending ? "提交中…" : "转换"}</Button>
       {m.isError && <span className="text-xs text-danger">{(m.error as Error).message}</span>}
+      {convJob && <JobLog jobId={convJob} compact onDone={onConvDone} />}
       {results.length > 0 && <ScanDivider label="RESULTS" />}
       <ul className="flex flex-col gap-2">
         {results.map((r) => (

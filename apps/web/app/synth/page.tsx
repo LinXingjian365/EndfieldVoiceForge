@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Star, Download, Trash2, RefreshCw, ChevronDown, Wand2 } from "lucide-react";
-import { api, apiBlob, fileUrl, DEFAULT_TTS, type LibraryItem, type TtsParams, type WeightEntry, type Status, type RvcModels } from "@/lib/api";
+import { api, apiBlob, fileUrl, DEFAULT_TTS, type LibraryItem, type TtsParams, type WeightEntry, type Status, type RvcModels, type Job } from "@/lib/api";
 import { useStudio } from "@/lib/store";
 import { Panel, Chip, CoordinateTag, FrequencyBars, ScanDivider, WarningBand } from "@/components/ef";
 import { Button } from "@/components/ef/button";
@@ -11,6 +11,7 @@ import { Field, Slider, Switch, Select, Textarea } from "@/components/ef/form";
 import { HelpTip } from "@/components/ef/help-tip";
 import { RefPicker, type RefState } from "@/components/audio/ref-picker";
 import { Waveform } from "@/components/audio/waveform";
+import { JobLog } from "@/components/job-log";
 import { cn } from "@/lib/utils";
 
 const CUT = [
@@ -55,13 +56,32 @@ export default function SynthPage() {
   const models = useQuery({ queryKey: ["models"], queryFn: () => api<{ weights: WeightEntry[] }>("/models") });
   const library = useQuery({ queryKey: ["library", characterId], queryFn: () => api<LibraryItem[]>(`/library?character=${characterId}&limit=50`) });
   const rvcModels = useQuery({ queryKey: ["rvc-models"], queryFn: () => api<RvcModels>("/rvc/models") });
-  const rvcModel = rvcModels.data?.models.find((m) => m.name === characterId) ?? rvcModels.data?.models[0];
+  const rvcModelList = rvcModels.data?.models ?? [];
+  const [rvcModelFile, setRvcModelFile] = useState<string | null>(null);
+  // 模型加载后若尚未选择,默认匹配角色或取第一个
+  useEffect(() => {
+    if (!rvcModelFile && rvcModelList.length > 0) {
+      const def = rvcModelList.find((m) => m.name === characterId) ?? rvcModelList[0];
+      setRvcModelFile(def.file);
+    }
+  }, [rvcModelList, rvcModelFile, characterId]);
+  const rvcModel = rvcModelList.find((m) => m.file === rvcModelFile) ?? null;
   const [rvcRate, setRvcRate] = useState(0.5);
+  const [convJobId, setConvJobId] = useState<string | null>(null);
   const rvc = useMutation({
-    mutationFn: (id: number) => api("/rvc/convert", { method: "POST", json: { generation_id: id, model: rvcModel!.file, index_rate: rvcRate } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["library"] }),
+    mutationFn: (id: number) => api<Job>("/rvc/convert", { method: "POST", json: { generation_id: id, model: rvcModel!.file, index_rate: rvcRate } }),
+    onSuccess: (j) => setConvJobId(j.id),
     onError: (e) => setLastError((e as Error).message),
   });
+
+  // RVC 转换 job 完成后,把结果写回 library 并刷新列表
+  function onRvcDone(j: Job) {
+    if (j.status !== "done") { setConvJobId(null); return; }
+    api<LibraryItem>("/rvc/finalize", { method: "POST", json: { job_id: j.id } })
+      .then(() => qc.invalidateQueries({ queryKey: ["library"] }))
+      .catch(() => {})
+      .finally(() => setConvJobId(null));
+  }
 
   const gen = useMutation({
     mutationFn: async () => {
@@ -126,6 +146,7 @@ export default function SynthPage() {
         <Panel title="输出" en="GENERATED" className="min-w-0" action={<span className="micro">{library.data?.length ?? 0} items</span>}>
           <div className="h-full overflow-y-auto overflow-x-hidden">
             {lastError && <WarningBand className="m-2">{lastError}</WarningBand>}
+            {convJobId && <JobLog jobId={convJobId} compact className="m-2" onDone={onRvcDone} />}
             {library.data?.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-ink-3">
                 <Sparkles size={24} strokeWidth={1.25} />
@@ -150,7 +171,7 @@ export default function SynthPage() {
                     <button type="button" aria-label="收藏" onClick={() => patch.mutate({ id: g.id, favorite: !g.favorite })} className={cn("text-ink-3 hover:text-action", g.favorite && "text-action")}><Star size={14} fill={g.favorite ? "currentColor" : "none"} /></button>
                     <a href={fileUrl(g.wav)} download aria-label="下载" className="text-ink-3 hover:text-ink"><Download size={14} /></a>
                     <button type="button" aria-label="以此为参考" title="以此为参考" onClick={() => setRef({ path: g.wav, text: g.text, lang: params.text_lang, label: `gen #${g.id}` })} className="text-ink-3 hover:text-ink"><RefreshCw size={14} /></button>
-                    {rvcModel && !g.tags.includes("rvc") && <button type="button" aria-label="RVC 精修" title={`RVC 精修 (${rvcModel.name})`} disabled={rvc.isPending} onClick={() => rvc.mutate(g.id)} className={cn("text-ink-3 hover:text-special disabled:opacity-40", rvc.isPending && rvc.variables === g.id && "text-special animate-pulse")}><Wand2 size={14} /></button>}
+                    {rvcModel && !g.tags.includes("rvc") && <button type="button" aria-label="RVC 精修" title={`RVC 精修 (${rvcModel.name})`} disabled={rvc.isPending || !!convJobId} onClick={() => rvc.mutate(g.id)} className={cn("text-ink-3 hover:text-special disabled:opacity-40", rvc.isPending && rvc.variables === g.id && "text-special animate-pulse")}><Wand2 size={14} /></button>}
                     <button type="button" aria-label="删除" onClick={() => del.mutate(g.id)} className="text-ink-3 hover:text-danger"><Trash2 size={14} /></button>
                   </div>
                   <div className="micro mt-1 truncate">{g.gpt?.split("/").pop()} · {g.sovits?.split("/").pop()} · {g.created_at}</div>
@@ -170,10 +191,14 @@ export default function SynthPage() {
             <Select value={engine?.sovits ?? ""} onChange={(v) => load.mutate({ gpt: engine?.gpt ?? gptOpts[0]?.value, sovits: v })} options={sovOpts} ariaLabel="SoVITS 权重" className="text-xs" />
             {load.isPending && <span className="micro text-action-text">loading weights…</span>}
           </div>
-          {rvcModel && (
+          {rvcModelList.length > 0 && (
             <>
               <ScanDivider label="RVC" />
-              <Field label={`索引率 index_rate · ${rvcModel.name}`} help="rvc_index_rate" hint="输出列表里的魔杖按钮用此模型做音色精修" value={rvcRate.toFixed(2)}><Slider value={rvcRate} onChange={setRvcRate} min={0} max={1} step={0.05} ariaLabel="rvc index rate" /></Field>
+              <div className="flex flex-col gap-2">
+                <span className="micro flex items-center gap-1">模型<HelpTip k="rvc_what" /></span>
+                <Select value={rvcModel?.file ?? ""} onChange={(v) => setRvcModelFile(v)} options={rvcModelList.map((m) => ({ value: m.file, label: m.name }))} ariaLabel="RVC 模型" className="text-xs" />
+              </div>
+              <Field label={`索引率 index_rate`} help="rvc_index_rate" hint="输出列表里的魔杖按钮用此模型做音色精修" value={rvcRate.toFixed(2)}><Slider value={rvcRate} onChange={setRvcRate} min={0} max={1} step={0.05} ariaLabel="rvc index rate" /></Field>
             </>
           )}
           <ScanDivider label="SAMPLING" />

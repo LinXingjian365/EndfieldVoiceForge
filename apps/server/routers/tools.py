@@ -1,12 +1,18 @@
 """工具箱:UVR5 / 切片 / 降噪 / ASR(整目录),都作为子进程 job。"""
 import os
+import shutil
+import subprocess
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from ..core import gsv, jobs as jobmgr, paths
 
 router = APIRouter(prefix="/tools", tags=["tools"])
+
+FFMPEG = shutil.which("ffmpeg")
 
 
 def _in(p: str) -> str:
@@ -97,3 +103,104 @@ def browse(path: str = "outputs"):
         p = os.path.join(ap, fn)
         items.append({"name": fn, "dir": os.path.isdir(p), "size": os.path.getsize(p) if os.path.isfile(p) else None, "rel": paths.rel_to_root(p)})
     return {"path": paths.rel_to_root(ap), "items": items}
+
+
+def _audio_out_dir() -> str:
+    d = os.path.join(paths.OUTPUTS_DIR, "extracted")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+class ExtractAudioBody(BaseModel):
+    path: str
+
+
+@router.post("/extract_audio")
+def extract_audio(b: ExtractAudioBody):
+    """视频 -> 单声道 40kHz wav(供波形选区 + RVC 用)。ffmpeg 秒级同步。"""
+    if not FFMPEG:
+        raise HTTPException(500, "ffmpeg not found on PATH")
+    src = paths.resolve(b.path)
+    if not paths.is_safe(src) or not os.path.isfile(src):
+        raise HTTPException(404, "video not found")
+    base = os.path.splitext(os.path.basename(src))[0]
+    out = os.path.join(_audio_out_dir(), f"{base}_{uuid.uuid4().hex[:6]}.wav")
+    r = subprocess.run(
+        [FFMPEG, "-y", "-i", src, "-vn", "-ac", "1", "-ar", "40000", "-c:a", "pcm_s16le", out],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if r.returncode != 0 or not os.path.isfile(out):
+        raise HTTPException(500, (r.stderr or r.stdout)[-1500:])
+    try:
+        import soundfile as sf
+        dur = sf.info(out).duration
+    except Exception:  # noqa: BLE001
+        dur = 0.0
+    return {"path": paths.rel_to_root(out), "name": os.path.basename(out), "duration": round(dur, 3)}
+
+
+class CutBody(BaseModel):
+    path: str
+    start: float
+    end: float
+
+
+@router.post("/cut")
+def cut_audio(b: CutBody):
+    """按秒级起止点截取音频片段(不重编码,直接流拷贝)。"""
+    if not FFMPEG:
+        raise HTTPException(500, "ffmpeg not found on PATH")
+    src = paths.resolve(b.path)
+    if not paths.is_safe(src) or not os.path.isfile(src):
+        raise HTTPException(404, "audio not found")
+    dur = b.end - b.start
+    if dur <= 0 or b.start < 0:
+        raise HTTPException(400, "invalid start/end")
+    base = os.path.splitext(os.path.basename(src))[0]
+    out = os.path.join(_audio_out_dir(), f"{base}_cut{round(b.start,2)}-{round(b.end,2)}_{uuid.uuid4().hex[:6]}.wav")
+    r = subprocess.run(
+        [FFMPEG, "-y", "-ss", f"{b.start:.3f}", "-i", src, "-t", f"{dur:.3f}", "-ac", "1", "-ar", "40000", "-c:a", "pcm_s16le", out],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if r.returncode != 0 or not os.path.isfile(out):
+        raise HTTPException(500, (r.stderr or r.stdout)[-1500:])
+    try:
+        import soundfile as sf
+        out_dur = sf.info(out).duration
+    except Exception:  # noqa: BLE001
+        out_dur = dur
+    return {"path": paths.rel_to_root(out), "name": os.path.basename(out), "duration": round(out_dur, 3)}
+
+
+class ConcatBody(BaseModel):
+    paths: list[str]
+
+
+@router.post("/concat")
+def concat_audio(b: ConcatBody):
+    """按顺序拼接多个音频片段(组合标记用)。要求采样率/声道一致(均为 40kHz 单声道)。"""
+    if not FFMPEG:
+        raise HTTPException(500, "ffmpeg not found on PATH")
+    if len(b.paths) < 2:
+        raise HTTPException(400, "need at least 2 files to concat")
+    ins = []
+    for p in b.paths:
+        ap = paths.resolve(p)
+        if not paths.is_safe(ap) or not os.path.isfile(ap):
+            raise HTTPException(404, f"audio not found: {p}")
+        ins.append(ap)
+    out = os.path.join(_audio_out_dir(), f"combo_{uuid.uuid4().hex[:6]}.wav")
+    cmd = [FFMPEG, "-y"]
+    for p in ins:
+        cmd += ["-i", p]
+    flt = "".join(f"[{i}:a]" for i in range(len(ins))) + f"concat=n={len(ins)}:v=0:a=1[out]"
+    cmd += ["-filter_complex", flt, "-map", "[out]", "-ac", "1", "-ar", "40000", "-c:a", "pcm_s16le", out]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0 or not os.path.isfile(out):
+        raise HTTPException(500, (r.stderr or r.stdout)[-1500:])
+    try:
+        import soundfile as sf
+        out_dur = sf.info(out).duration
+    except Exception:  # noqa: BLE001
+        out_dur = 0.0
+    return {"path": paths.rel_to_root(out), "name": os.path.basename(out), "duration": round(out_dur, 3)}

@@ -104,7 +104,7 @@ class Engine:
                     {
                         "custom": {
                             "device": self.device,
-                            "is_half": True,
+                            "is_half": self.device != "cpu",
                             "version": version,
                             "t2s_weights_path": gpt_abs,
                             "vits_weights_path": sov_abs,
@@ -132,22 +132,34 @@ class Engine:
         w = character["weights"]
         self.load(w["gpt"], w["sovits"], w.get("version", "v2"), character["id"])
 
+    def _free_locked(self):
+        """(调用方须持有 _lock) 释放模型与显存。"""
+        if self.tts is not None:
+            del self.tts
+            self.tts = None
+            self.gpt = self.sovits = self.version = None
+        import gc
+
+        gc.collect()
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
     def unload(self) -> dict:
-        """释放推理模型与显存(训练前调用)。"""
+        """释放推理模型与显存(保持当前 device 不变)。"""
         with _lock:
-            if self.tts is not None:
-                del self.tts
-                self.tts = None
-                self.gpt = self.sovits = self.version = None
-            import gc
+            self._free_locked()
+        return self.describe()
 
-            gc.collect()
-            try:
-                import torch
-
-                torch.cuda.empty_cache()
-            except Exception:  # noqa: BLE001
-                pass
+    def set_device(self, device: str) -> dict:
+        """切换推理设备。训练切 cpu 时释放显存,让训练与合成可同时进行(合成走 CPU,慢但可用)。"""
+        with _lock:
+            if self.device != device:
+                self._free_locked()
+                self.device = device
         return self.describe()
 
     # ---------- 合成 ----------
