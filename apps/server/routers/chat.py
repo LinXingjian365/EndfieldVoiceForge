@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
@@ -36,45 +37,125 @@ class ChatTtsRequest(BaseModel):
 _HISTORY_DIR = os.path.join(paths.OUTPUTS_DIR, "chat_history")
 
 
-def _history_path(character: str) -> str:
-    return os.path.join(_HISTORY_DIR, f"{character}.json")
+def _sess_dir(character: str) -> str:
+    d = os.path.join(_HISTORY_DIR, character)
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
-class HistoryBody(BaseModel):
-    character: str = "typhoea"
-    messages: list[dict] = Field(default_factory=list)
+def _sess_path(character: str, sid: str) -> str:
+    if not sid.isalnum():
+        raise HTTPException(400, "bad session id")
+    return os.path.join(_sess_dir(character), f"{sid}.json")
 
 
-@router.get("/history")
-def get_history(character: str = "typhoea"):
-    p = _history_path(character)
-    if not os.path.isfile(p):
-        return {"messages": []}
-    try:
-        with open(p, encoding="utf-8") as f:
-            return {"messages": json.load(f)}
-    except (OSError, ValueError):
-        return {"messages": []}
-
-
-@router.post("/history")
-def save_history(body: HistoryBody):
-    os.makedirs(_HISTORY_DIR, exist_ok=True)
+def _clean_messages(messages: list[dict]) -> list[dict]:
     # 只保留 role/content/sources，剔除 audioUrl(blob)/streaming 等瞬态字段
-    msgs = []
-    for m in body.messages:
+    out = []
+    for m in messages:
         clean = {"role": m.get("role"), "content": m.get("content", "")}
         if m.get("sources"):
             clean["sources"] = m["sources"]
-        msgs.append(clean)
-    with open(_history_path(body.character), "w", encoding="utf-8") as f:
-        json.dump(msgs, f, ensure_ascii=False)
-    return {"ok": True, "count": len(msgs)}
+        out.append(clean)
+    return out
 
 
-@router.delete("/history")
-def clear_history(character: str = "typhoea"):
-    p = _history_path(character)
+def _auto_title(messages: list[dict]) -> str:
+    first = next((m["content"] for m in messages if m.get("role") == "user" and m.get("content")), "")
+    return " ".join(first.split())[:24] or "新对话"
+
+
+def _write_session(character: str, sess: dict) -> None:
+    with open(_sess_path(character, sess["id"]), "w", encoding="utf-8") as f:
+        json.dump(sess, f, ensure_ascii=False)
+
+
+def _read_session(character: str, sid: str) -> dict | None:
+    p = _sess_path(character, sid)
+    if not os.path.isfile(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _migrate_legacy(character: str) -> None:
+    """旧版单文件 chat_history/<character>.json → 一个会话。"""
+    legacy = os.path.join(_HISTORY_DIR, f"{character}.json")
+    if not os.path.isfile(legacy):
+        return
+    try:
+        with open(legacy, encoding="utf-8") as f:
+            msgs = json.load(f)
+    except (OSError, ValueError):
+        msgs = []
+    if msgs:
+        now = time.time()
+        _write_session(character, {"id": uuid.uuid4().hex[:12], "title": _auto_title(msgs), "created": now, "updated": now, "messages": msgs})
+    os.remove(legacy)
+
+
+class SessionCreate(BaseModel):
+    character: str = "typhoea"
+    title: str = ""
+
+
+class SessionSave(BaseModel):
+    character: str = "typhoea"
+    messages: list[dict] = Field(default_factory=list)
+    title: str | None = None
+
+
+@router.get("/sessions")
+def list_sessions(character: str = "typhoea"):
+    _migrate_legacy(character)
+    rows = []
+    for fn in os.listdir(_sess_dir(character)):
+        if not fn.endswith(".json"):
+            continue
+        sess = _read_session(character, fn[:-5])
+        if sess:
+            rows.append({"id": sess["id"], "title": sess.get("title") or "新对话", "updated": sess.get("updated", 0), "count": len(sess.get("messages", []))})
+    rows.sort(key=lambda r: r["updated"], reverse=True)
+    return {"sessions": rows}
+
+
+@router.post("/sessions")
+def create_session(body: SessionCreate):
+    now = time.time()
+    sess = {"id": uuid.uuid4().hex[:12], "title": body.title.strip() or "新对话", "created": now, "updated": now, "messages": []}
+    _write_session(body.character, sess)
+    return sess
+
+
+@router.get("/sessions/{sid}")
+def get_session(sid: str, character: str = "typhoea"):
+    sess = _read_session(character, sid)
+    if not sess:
+        raise HTTPException(404, "session not found")
+    return sess
+
+
+@router.put("/sessions/{sid}")
+def save_session(sid: str, body: SessionSave):
+    sess = _read_session(body.character, sid)
+    if not sess:
+        raise HTTPException(404, "session not found")
+    sess["messages"] = _clean_messages(body.messages)
+    if body.title is not None:
+        sess["title"] = body.title.strip() or "新对话"
+    elif sess.get("title") in ("", "新对话"):
+        sess["title"] = _auto_title(sess["messages"])
+    sess["updated"] = time.time()
+    _write_session(body.character, sess)
+    return {"ok": True, "title": sess["title"], "count": len(sess["messages"])}
+
+
+@router.delete("/sessions/{sid}")
+def delete_session(sid: str, character: str = "typhoea"):
+    p = _sess_path(character, sid)
     if os.path.isfile(p):
         os.remove(p)
     return {"ok": True}

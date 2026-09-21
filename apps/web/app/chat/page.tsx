@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Send, Volume2, VolumeX, Bot, User, Database } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Send, Volume2, VolumeX, Bot, User, Database, Plus, Pencil, Trash2, MessageSquare } from "lucide-react";
 import { API_BASE, api, apiBlob, assetUrl, type Character } from "@/lib/api";
 import { Chip } from "@/components/ef";
 import { Button } from "@/components/ef/button";
@@ -33,6 +33,15 @@ interface ChatStatus {
   rag_ready: boolean;
 }
 
+interface SessionRow {
+  id: string;
+  title: string;
+  updated: number;
+  count: number;
+}
+
+const CHARACTER = "typhoea";
+
 const SOURCE_LABEL: Record<string, string> = {
   archive: "档案",
   sns: "SNS 对话",
@@ -43,8 +52,11 @@ const SOURCE_LABEL: Record<string, string> = {
 export default function ChatPage() {
   const char = useQuery({ queryKey: ["character", "typhoea"], queryFn: () => api<Character>("/characters/typhoea") });
   const status = useQuery({ queryKey: ["chat-status"], queryFn: () => api<ChatStatus>("/chat/status") });
-  const historyQ = useQuery({ queryKey: ["chat-history", "typhoea"], queryFn: () => api<{ messages: Msg[] }>("/chat/history?character=typhoea") });
+  const qc = useQueryClient();
+  const sessionsQ = useQuery({ queryKey: ["chat-sessions", CHARACTER], queryFn: () => api<{ sessions: SessionRow[] }>(`/chat/sessions?character=${CHARACTER}`) });
+  const [sid, setSid] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [input, setInput] = useState("");
   const [voice, setVoice] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -60,8 +72,28 @@ export default function ChatPage() {
 
   const [busy, setBusy] = useState(false);
 
+  async function ensureSession(): Promise<string> {
+    if (sid) return sid;
+    const sess = await api<{ id: string }>("/chat/sessions", { method: "POST", json: { character: CHARACTER } });
+    setSid(sess.id);
+    qc.invalidateQueries({ queryKey: ["chat-sessions", CHARACTER] });
+    return sess.id;
+  }
+
+  async function saveSession(id: string, messages: Msg[]) {
+    await api(`/chat/sessions/${id}`, { method: "PUT", json: { character: CHARACTER, messages } }).catch(() => {});
+    qc.invalidateQueries({ queryKey: ["chat-sessions", CHARACTER] });
+  }
+
   async function send(text: string) {
     const history = msgs.slice(-20).map((m) => ({ role: m.role, content: m.content }));
+    let id: string;
+    try {
+      id = await ensureSession();
+    } catch (e) {
+      setMsgs((m) => [...m, { role: "user", content: text }, { role: "assistant", content: `（回复失败）无法创建会话: ${(e as Error).message}` }]);
+      return;
+    }
     setMsgs((m) => [...m, { role: "user", content: text }, { role: "assistant", content: "", streaming: true }]);
     setInput("");
     setBusy(true);
@@ -113,8 +145,10 @@ export default function ChatPage() {
       return;
     }
 
+    const finalMsgs = [...msgs, { role: "user" as const, content: text }, { role: "assistant" as const, content: reply, sources }];
     setMsgs((m) => m.map((x, i) => (i === m.length - 1 ? { ...x, streaming: false } : x)));
     setBusy(false);
+    saveSession(id, finalMsgs);
 
     if (voiceRef.current && reply) {
       try {
@@ -133,23 +167,48 @@ export default function ChatPage() {
     send(text);
   }
 
-  // 对话记录留存：启动时加载历史
+  // 首次进入自动打开最近一个会话
+  const sessions = sessionsQ.data?.sessions ?? [];
+  const autoOpened = useRef(false);
   useEffect(() => {
-    if (historyQ.data?.messages?.length) setMsgs(historyQ.data.messages);
-  }, [historyQ.data]);
+    if (autoOpened.current || !sessionsQ.data) return;
+    autoOpened.current = true;
+    if (sessions.length > 0) openSession(sessions[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionsQ.data]);
 
-  // 每完成一轮对话就保存（busy 从 true -> false 时触发一次）
-  const prevBusyRef = useRef(false);
-  useEffect(() => {
-    if (prevBusyRef.current && !busy && msgs.length > 0) {
-      api("/chat/history", { method: "POST", json: { character: "typhoea", messages: msgs } }).catch(() => {});
+  async function openSession(id: string) {
+    if (busy) return;
+    try {
+      const sess = await api<{ id: string; messages: Msg[] }>(`/chat/sessions/${id}?character=${CHARACTER}`);
+      setSid(sess.id);
+      setMsgs(sess.messages);
+    } catch {
+      qc.invalidateQueries({ queryKey: ["chat-sessions", CHARACTER] });
     }
-    prevBusyRef.current = busy;
-  }, [busy, msgs]);
+  }
 
-  function clearChat() {
+  function newChat() {
+    if (busy) return;
+    setSid(null);
     setMsgs([]);
-    api("/chat/history?character=typhoea", { method: "DELETE" }).catch(() => {});
+  }
+
+  async function deleteSession(id: string) {
+    if (!window.confirm("删除这个会话？记录不可恢复。")) return;
+    await api(`/chat/sessions/${id}?character=${CHARACTER}`, { method: "DELETE" }).catch(() => {});
+    if (id === sid) newChat();
+    qc.invalidateQueries({ queryKey: ["chat-sessions", CHARACTER] });
+  }
+
+  async function commitRename() {
+    if (!renaming) return;
+    const { id, title } = renaming;
+    setRenaming(null);
+    const sess = await api<{ messages: Msg[] }>(`/chat/sessions/${id}?character=${CHARACTER}`).catch(() => null);
+    if (!sess) return;
+    await api(`/chat/sessions/${id}`, { method: "PUT", json: { character: CHARACTER, messages: sess.messages, title } }).catch(() => {});
+    qc.invalidateQueries({ queryKey: ["chat-sessions", CHARACTER] });
   }
 
   const avatar = c?.art.avatarSquare ?? c?.art.avatar;
@@ -186,7 +245,7 @@ export default function ChatPage() {
       />
 
       {/* 顶栏：Baker 名牌 */}
-      <header className="relative z-10 flex items-center gap-3 border-b border-line-1 bg-surface-0/80 px-4 py-2 backdrop-blur">
+      <header className="relative z-10 flex items-center gap-3 border-b border-line-1 bg-surface-0/80 py-2 pl-4 pr-28 backdrop-blur">
         <div className="flex flex-col gap-0.5 leading-none">
           <span className="font-belt text-xl tracking-[0.18em] text-ink">BAKER</span>
           <img
@@ -213,14 +272,47 @@ export default function ChatPage() {
               <Chip tone={s.rag_ready ? "data" : "notify"}>{s.rag_ready ? `资料 ${s.rag_chunks}` : "资料未入库"}</Chip>
             </>
           )}
-          {msgs.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={clearChat}>清空</Button>
-          )}
+          <Button variant="ghost" size="sm" icon={<Plus size={12} />} onClick={newChat} disabled={busy}>新对话</Button>
         </div>
       </header>
 
+      <div className="relative z-10 flex min-h-0 flex-1">
+      {/* 会话列表 */}
+      <aside className="flex w-52 shrink-0 flex-col border-r border-line-1 bg-surface-0/80 backdrop-blur">
+        <div className="micro flex items-center justify-between px-3 py-2">
+          <span>会话 · {sessions.length}</span>
+          <button type="button" aria-label="新对话" title="新对话" onClick={newChat} disabled={busy} className="text-ink-3 hover:text-action-text disabled:opacity-40"><Plus size={13} /></button>
+        </div>
+        <ul className="min-h-0 flex-1 overflow-y-auto">
+          {sessions.map((row) => (
+            <li key={row.id} className={cn("group flex items-center gap-1 border-l-2 px-2 py-1.5 text-xs", row.id === sid ? "border-action bg-surface-2/80 text-ink" : "border-transparent text-ink-2 hover:bg-surface-1")}>
+              {renaming?.id === row.id ? (
+                <input
+                  autoFocus
+                  value={renaming.title}
+                  onChange={(e) => setRenaming({ id: row.id, title: e.target.value })}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenaming(null); }}
+                  className="min-w-0 flex-1 border border-line-2 bg-surface-0 px-1 py-0.5 text-xs text-ink outline-none"
+                  aria-label="会话名称"
+                />
+              ) : (
+                <button type="button" onClick={() => openSession(row.id)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left" title={row.title}>
+                  <MessageSquare size={12} className="shrink-0 opacity-60" />
+                  <span className="truncate">{row.title}</span>
+                </button>
+              )}
+              <button type="button" aria-label="重命名" title="重命名" onClick={() => setRenaming({ id: row.id, title: row.title })} className="shrink-0 text-ink-3 opacity-0 hover:text-ink group-hover:opacity-100"><Pencil size={11} /></button>
+              <button type="button" aria-label="删除会话" title="删除会话" onClick={() => deleteSession(row.id)} className="shrink-0 text-ink-3 opacity-0 hover:text-danger group-hover:opacity-100"><Trash2 size={11} /></button>
+            </li>
+          ))}
+          {sessions.length === 0 && <li className="px-3 py-2 text-xs text-ink-3">还没有会话，发一句话就会自动建一个。</li>}
+        </ul>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
       {/* 消息区 */}
-      <div ref={scrollRef} className="relative z-10 min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {msgs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             {avatar && <img src={assetUrl(avatar)} alt={c?.name} className="h-24 w-24 object-cover opacity-90" />}
@@ -291,7 +383,7 @@ export default function ChatPage() {
       </div>
 
       {/* 输入区 */}
-      <div className="relative z-10 flex items-end gap-2 border-t border-line-1 bg-surface-0/80 p-2 backdrop-blur">
+      <div className="relative flex items-end gap-2 border-t border-line-1 bg-surface-0/80 p-2 backdrop-blur">
         <label className="flex shrink-0 cursor-pointer items-center gap-2 px-2 py-2 text-xs text-ink-2">
           <Switch checked={voice} onChange={setVoice} ariaLabel="语音回复" />
           {voice ? <Volume2 size={14} /> : <VolumeX size={14} />}
@@ -312,6 +404,8 @@ export default function ChatPage() {
         <Button variant="action" icon={<Send size={14} />} onClick={onSubmit} disabled={!input.trim() || busy} loading={busy}>
           发送
         </Button>
+      </div>
+      </div>
       </div>
     </div>
   );
